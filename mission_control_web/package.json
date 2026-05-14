@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "python3 scripts/export-hermes-themes.py",
+    "prebuild": "echo prebuild skipped: themes file already generated",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
