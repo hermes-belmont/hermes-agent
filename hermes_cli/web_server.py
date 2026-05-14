@@ -194,12 +194,22 @@ def _is_accepted_host(host_header: str, bound_host: str) -> bool:
     if bound_host in {"0.0.0.0", "::"}:
         return True
 
-    # Loopback bind: accept the loopback names
+    extra_hosts = {
+        value.strip().lower()
+        for value in os.environ.get("HERMES_DASHBOARD_ALLOWED_HOSTS", "").split(",")
+        if value.strip()
+    }
+    if host_only in extra_hosts:
+        return True
+
+    # Loopback bind: accept the loopback names, plus explicitly configured
+    # trusted proxy hostnames such as a private Tailscale Serve DNS name.
     bound_lc = bound_host.lower()
     if bound_lc in _LOOPBACK_HOST_VALUES:
         return host_only in _LOOPBACK_HOST_VALUES
 
-    # Explicit non-loopback bind: require exact host match
+    # Explicit non-loopback bind: require exact host match unless a trusted
+    # proxy hostname was configured above.
     return host_only == bound_lc
 
 

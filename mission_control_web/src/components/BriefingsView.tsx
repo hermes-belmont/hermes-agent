@@ -1,0 +1,166 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { BellRing, CheckCircle2, Clock, Loader2, Settings2, XCircle } from "lucide-react";
+import { api } from "@/lib/api";
+import type { Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus } from "@/lib/types";
+import { briefingDateLabel, briefingPriorityTone, formatBriefingTime, summarizeRunProgress } from "@/lib/briefings";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { cn } from "@/lib/utils";
+
+const days = [
+  ["mon", "Mon"], ["tue", "Tue"], ["wed", "Wed"], ["thu", "Thu"], ["fri", "Fri"], ["sat", "Sat"], ["sun", "Sun"],
+] as const;
+
+function StatusPill({ status }: { status: string }) {
+  const tone = status === "ok" ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : status === "timeout" ? "border-amber-400/30 bg-amber-400/10 text-amber-200" : "border-red-400/30 bg-red-400/10 text-red-200";
+  return <span className={cn("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]", tone)}>{status}</span>;
+}
+
+function ErrorClassPill({ label }: { label: string }) {
+  const lower = label.toLowerCase();
+  const tone = lower.includes("rate") || lower.includes("timeout")
+    ? "border-amber-400/35 bg-amber-400/12 text-amber-200"
+    : lower.includes("auth") || lower.includes("invalid") || lower.includes("exited") || lower.includes("unknown")
+      ? "border-red-400/35 bg-red-400/12 text-red-200"
+      : "border-foreground/15 bg-foreground/8 text-foreground/70";
+  return <span className={cn("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.10em]", tone)}>{label}</span>;
+}
+
+function PriorityPill({ priority }: { priority: string }) {
+  const tone = briefingPriorityTone(priority);
+  const cls = tone === "high" ? "bg-red-400/12 text-red-200 border-red-400/30" : tone === "medium" ? "bg-amber-400/12 text-amber-200 border-amber-400/30" : "bg-foreground/8 text-foreground/70 border-foreground/15";
+  return <span className={cn("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]", cls)}>{tone}</span>;
+}
+
+export function BriefingsView() {
+  const [briefings, setBriefings] = useState<BriefingListItem[]>([]);
+  const [active, setActive] = useState<Briefing | null>(null);
+  const [config, setConfig] = useState<BriefingConfig | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [runStatus, setRunStatus] = useState<BriefingRunStatus | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const [list, cfg] = await Promise.all([api.listBriefings(), api.getBriefingsConfig()]);
+    setBriefings(list);
+    setConfig(cfg);
+    if (list.length) {
+      setActive(await api.getBriefing(list[0].id));
+    } else {
+      setActive(null);
+    }
+  }, []);
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void load().catch((err) => setError(String(err))); }, [load]);
+
+  useEffect(() => {
+    if (!running) return;
+    const id = window.setInterval(() => {
+      void api.getBriefingRunStatus().then(setRunStatus).catch(() => undefined);
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [running]);
+
+  const agentLabels = useMemo(() => config?.agent_status?.map((agent) => agent.label) ?? ["Customs Director", "Media Director", "Properties Director", "Financial Analyst", "Holdings Operator"], [config]);
+  const progress = summarizeRunProgress(agentLabels, runStatus);
+
+  async function runNow() {
+    setError(null);
+    setRunning(true);
+    setRunStatus({ running: true, agents: agentLabels.map((label) => ({ label, status: "pending" })) });
+    try {
+      const result = await api.runBriefingSweep();
+      setActive(result);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  async function saveConfig() {
+    if (!config) return;
+    try {
+      const saved = await api.updateBriefingsConfig(config);
+      setConfig(saved);
+      setDrawerOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  return (
+    <section className="relative min-h-[calc(100vh-120px)] space-y-5" data-testid="briefings-view">
+      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+        <div>
+          <div className="flex items-center gap-2 text-[11px] uppercase tracking-[0.18em] text-[var(--warm-glow)]"><BellRing className="h-4 w-4" /> Briefings</div>
+          <h1 className="mt-2 font-expanded text-3xl uppercase tracking-[0.08em] text-foreground">Daily Briefings</h1>
+          <p className="mt-1 text-sm text-muted-foreground">What your agents want you to know</p>
+        </div>
+        <div className="flex gap-2">
+          <Button onClick={() => void runNow()} disabled={running}>{running ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}Run Now</Button>
+          <Button variant="outline" onClick={() => setDrawerOpen(true)}><Settings2 className="mr-2 h-4 w-4" />Configure</Button>
+        </div>
+      </div>
+
+      {error && <div className="rounded-xl border border-red-400/30 bg-red-400/10 p-3 text-sm text-red-100">{error}</div>}
+
+      {!briefings.length ? (
+        <Card className="flex min-h-[480px] items-center justify-center text-center">
+          <CardContent className="max-w-md space-y-4 pt-6">
+            <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--warm-glow)_18%,transparent)] text-[var(--warm-glow)]"><BellRing className="h-8 w-8" /></div>
+            <div>
+              <h2 className="font-expanded text-xl uppercase tracking-[0.08em]">No briefings yet</h2>
+              <p className="mt-2 text-sm text-muted-foreground">Run a sweep now to ask your agents what is coming up</p>
+            </div>
+            <Button onClick={() => void runNow()} disabled={running}>Run Now</Button>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+          <aside className="space-y-2 lg:sticky lg:top-4 lg:self-start">
+            {briefings.map((item) => {
+              const selected = active?.id === item.id;
+              return (
+                <button key={item.id} onClick={() => void api.getBriefing(item.id).then(setActive)} className={cn("w-full rounded-xl border p-3 text-left transition", selected ? "border-[color-mix(in_srgb,var(--warm-glow)_38%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)]" : "border-foreground/10 bg-foreground/[0.03] hover:bg-foreground/[0.06]") }>
+                  <div className="font-expanded text-sm uppercase tracking-[0.08em]">{briefingDateLabel(item.id)}</div>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground"><span>{Object.keys(item.summary.by_agent ?? {}).length} agents</span><span>{item.summary.total_items} items</span>{item.summary.high_priority_count > 0 && <span className="text-red-200">{item.summary.high_priority_count} high</span>}</div>
+                </button>
+              );
+            })}
+          </aside>
+          <Card>
+            {active && (
+              <>
+                <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div><CardTitle className="font-expanded uppercase tracking-[0.08em]">{briefingDateLabel(active.id)} Briefing</CardTitle><CardDescription>{formatBriefingTime(active.generated_at)} · {active.triggered_by} · {active.duration_ms} ms</CardDescription></div>
+                  <Button variant="outline" onClick={() => void runNow()} disabled={running}>Run Now</Button>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {active.agents.map((agent) => (
+                    <section key={agent.label} className="rounded-2xl border border-foreground/10 bg-background/35 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-expanded text-sm uppercase tracking-[0.10em]">{agent.label}</h3><div className="flex items-center gap-2"><a href={`#/tracking?agent_id=${encodeURIComponent(agent.agent_id)}`} className="rounded-full border border-foreground/10 px-2 py-1 text-[11px] uppercase tracking-[0.10em] text-muted-foreground hover:text-[var(--warm-glow)]">Tracking {agent.tracked_items_count ?? 0} items</a><StatusPill status={agent.status} /><span className="text-[11px] text-muted-foreground">{agent.latency_ms} ms</span></div></div>
+                      {agent.error_class && <div className="mt-3 flex flex-wrap items-center gap-2"><ErrorClassPill label={agent.error_class} /></div>}
+                      {agent.error_detail && <pre className="mt-3 max-h-40 overflow-auto whitespace-pre-wrap rounded-xl border border-red-400/20 bg-red-400/[0.06] p-3 text-xs leading-relaxed text-red-100/90">{agent.error_detail}</pre>}
+                      {!agent.error_detail && agent.error && <p className="mt-3 text-sm text-red-200">{agent.error}</p>}
+                      {agent.parsed_items.length ? <div className="mt-3 space-y-2">{agent.parsed_items.map((item, index) => <div key={`${item.title}-${index}`} className="grid gap-2 rounded-xl border border-foreground/8 bg-foreground/[0.025] p-3 md:grid-cols-[1.2fr_0.7fr_0.45fr_1.7fr]"><div><div className="font-medium">{item.title}</div>{item.source && item.source !== "agent_inference" && <a href={`#/tracking?agent_id=${encodeURIComponent(agent.agent_id)}&item_id=${encodeURIComponent(item.source)}`} className="mt-1 inline-flex text-[11px] uppercase tracking-[0.10em] text-[var(--warm-glow)]">Tracked source</a>}</div><div className="text-sm text-muted-foreground">{item.due || "No date"}</div><PriorityPill priority={item.priority} /><div className="text-sm text-muted-foreground">{item.reason}</div></div>)}</div> : <div className="mt-3 rounded-xl border border-foreground/8 bg-foreground/[0.025] p-3 text-sm text-muted-foreground">No items reported.</div>}
+                      {agent.notes_for_david && <p className="mt-3 text-sm text-[var(--warm-glow)]">Notes for David: {agent.notes_for_david}</p>}
+                    </section>
+                  ))}
+                </CardContent>
+              </>
+            )}
+          </Card>
+        </div>
+      )}
+
+      {running && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"><Card className="w-full max-w-lg"><CardHeader><CardTitle className="flex items-center gap-2 font-expanded uppercase tracking-[0.08em]"><Loader2 className="h-5 w-5 animate-spin text-[var(--warm-glow)]" /> Running briefing sweep</CardTitle><CardDescription>Querying each director and operator. This can take up to 8 minutes in the worst case.</CardDescription></CardHeader><CardContent className="space-y-2">{progress.map((item) => <div key={item.label} className="flex items-center justify-between rounded-xl border border-foreground/10 bg-foreground/[0.03] px-3 py-2"><span>{item.label}</span><span className="flex items-center gap-2 text-sm text-muted-foreground">{item.status === "pending" ? <Clock className="h-4 w-4" /> : item.status === "ok" ? <CheckCircle2 className="h-4 w-4 text-emerald-300" /> : <XCircle className="h-4 w-4 text-red-300" />}{item.status}</span></div>)}</CardContent></Card></div>}
+
+      {drawerOpen && config && <div className="fixed inset-0 z-40 bg-black/45" onClick={() => setDrawerOpen(false)}><aside className="absolute right-0 top-0 h-full w-full max-w-md overflow-y-auto border-l border-foreground/10 bg-background p-5 shadow-2xl" onClick={(event) => event.stopPropagation()}><div className="flex items-start justify-between"><div><h2 className="font-expanded text-xl uppercase tracking-[0.08em]">Configure Briefings</h2><p className="mt-1 text-sm text-muted-foreground">Schedule mode: {config.schedule_mode}</p></div><button className="rounded-lg p-2 hover:bg-foreground/8" onClick={() => setDrawerOpen(false)}><XCircle className="h-5 w-5" /></button></div><div className="mt-5 space-y-5"><label className="flex items-center justify-between rounded-xl border border-foreground/10 p-3"><span>Enable scheduled sweeps</span><input type="checkbox" checked={config.enabled} onChange={(event) => setConfig({ ...config, enabled: event.target.checked })} /></label><label className="block space-y-2"><span className="text-sm text-muted-foreground">Time of day</span><Input type="time" value={config.time_local} onChange={(event) => setConfig({ ...config, time_local: event.target.value })} /></label><div><div className="mb-2 text-sm text-muted-foreground">Days of week</div><div className="grid grid-cols-4 gap-2">{days.map(([id, label]) => <label key={id} className="flex items-center gap-2 rounded-lg border border-foreground/10 p-2 text-sm"><input type="checkbox" checked={config.days_of_week.includes(id)} onChange={(event) => setConfig({ ...config, days_of_week: event.target.checked ? [...config.days_of_week, id] : config.days_of_week.filter((day) => day !== id) })} />{label}</label>)}</div></div><div><div className="mb-2 text-sm text-muted-foreground">Agents to include</div><div className="space-y-2">{config.agent_status.map((agent) => <label key={agent.configured_agent_id ?? agent.agent_id} className="flex items-center justify-between gap-3 rounded-xl border border-foreground/10 p-3"><span><span className="block">{agent.label}</span><span className="text-xs text-muted-foreground">{agent.status} · {agent.agent_id}</span></span><input type="checkbox" checked={config.agents.includes(agent.configured_agent_id ?? agent.agent_id)} onChange={(event) => { const id = agent.configured_agent_id ?? agent.agent_id; setConfig({ ...config, agents: event.target.checked ? [...config.agents, id] : config.agents.filter((value) => value !== id) }); }} /></label>)}</div></div><div className="flex justify-end gap-2"><Button variant="outline" onClick={() => setDrawerOpen(false)}>Cancel</Button><Button onClick={() => void saveConfig()}>Save</Button></div></div></aside></div>}
+    </section>
+  );
+}

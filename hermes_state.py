@@ -1618,6 +1618,44 @@ class SessionDB:
             result.append(msg)
         return result
 
+    def delete_last_message_if_match(
+        self, session_id: str, role: str, content: str
+    ) -> bool:
+        """Delete the most recent message row for ``session_id`` iff its role
+        and content match the arguments. Returns True when a row was removed.
+
+        Used by Mission Control's chat-stream handler to make retries
+        idempotent: if the previous attempt failed before an assistant turn
+        could be persisted, the orphaned user row is removed before the new
+        AIAgent invocation re-appends it.
+        """
+        if not session_id or content is None:
+            return False
+        with self._lock:
+            try:
+                row = self._conn.execute(
+                    "SELECT id, role, content FROM messages "
+                    "WHERE session_id = ? ORDER BY timestamp DESC, id DESC LIMIT 1",
+                    (session_id,),
+                ).fetchone()
+            except Exception:
+                return False
+            if not row:
+                return False
+            row_role = row["role"] if hasattr(row, "keys") else row[0]
+            row_content = self._decode_content(
+                row["content"] if hasattr(row, "keys") else row[2]
+            )
+            if row_role != role or (row_content or "") != (content or ""):
+                return False
+            row_id = row["id"] if hasattr(row, "keys") else row[0]
+            try:
+                self._conn.execute("DELETE FROM messages WHERE id = ?", (row_id,))
+                self._conn.commit()
+            except Exception:
+                return False
+            return True
+
     def resolve_resume_session_id(self, session_id: str) -> str:
         """Redirect a resume target to the descendant session that holds the messages.
 

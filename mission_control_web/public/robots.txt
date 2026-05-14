@@ -1,0 +1,6 @@
+# Search engine indexing is blocked via X-Robots-Tag
+# header set by mission_control_server.py.
+# robots.txt left permissive so automated review tools
+# and legitimate fetchers can access the public preview.
+User-agent: *
+Allow: /
