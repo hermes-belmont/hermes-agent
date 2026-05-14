@@ -291,6 +291,7 @@ export default function App() {
   const [error, setError] = useState<string>("");
   const [query, setQuery] = useState("");
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [pendingRouteAgentId, setPendingRouteAgentId] = useState<string | null>(null);
   const [selectedConversationId, setSelectedConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [messagesState, setMessagesState] = useState<LoadState>("idle");
@@ -540,6 +541,7 @@ export default function App() {
   }, [modelPreference]);
 
   const selectedAgent = bootstrap?.agents.find((agent) => agent.id === selectedAgentId) ?? null;
+  const pendingRouteAgent = bootstrap?.agents.find((agent) => agent.id === pendingRouteAgentId) ?? null;
   const catalogModels = bootstrap?.catalog.models ?? [];
   const activeModelPreference = modelPreference || selectedAgent?.preferred_model || defaultModel || catalogModels[0] || "openai/gpt-5.5";
   const recentsForPicker = useMemo(
@@ -991,6 +993,7 @@ export default function App() {
       setMessages([]);
       setShowAgentRoutePicker(false);
       setHermesDirectHint(false);
+      setPendingRouteAgentId(null);
     }
   };
 
@@ -1020,13 +1023,14 @@ export default function App() {
 
   const handleSelectHermesDirect = () => {
     if (hermesDirectAgent) {
+      setPendingRouteAgentId(hermesDirectAgent.id);
       setHermesDirectHint(true);
-      void selectAgentForDraft(hermesDirectAgent, true);
+      setShowAgentRoutePicker(false);
     }
   };
 
   useEffect(() => {
-    if (activeView !== "new-chat" || selectedAgentId || !bootstrap || !hermesDirectAgent || autoSelectingHermesDirectRef.current || composerText.trim().length === 0) return;
+    if (activeView !== "new-chat" || selectedAgentId || pendingRouteAgentId || !bootstrap || !hermesDirectAgent || autoSelectingHermesDirectRef.current || composerText.trim().length === 0) return;
     autoSelectingHermesDirectRef.current = true;
     setHermesDirectHint(true);
     void selectAgentForDraft(hermesDirectAgent, true).finally(() => {
@@ -1034,7 +1038,7 @@ export default function App() {
     });
     // Intentionally keyed to the route-selection inputs so the default route is selected once per New Chat reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, bootstrap, selectedAgentId]);
+  }, [activeView, bootstrap, pendingRouteAgentId, selectedAgentId]);
 
   const handleComposerChange = (value: string) => {
     setComposerText(value);
@@ -1052,21 +1056,22 @@ export default function App() {
     let sendAgent = selectedAgent;
     let sendConversationId = selectedConversation?.id ?? null;
     if (activeView === "new-chat" && !sendAgent) {
-      if (!hermesDirectAgent) return;
-      sendAgent = hermesDirectAgent;
+      const routeAgent = (pendingRouteAgentId ? bootstrap?.agents.find((agent) => agent.id === pendingRouteAgentId) : null) ?? hermesDirectAgent;
+      if (!routeAgent) return;
+      sendAgent = routeAgent;
       setShowAgentRoutePicker(false);
-      setHermesDirectHint(true);
-      setSelectedAgentId(hermesDirectAgent.id);
+      setHermesDirectHint(routeAgent.id === hermesDirectAgent?.id);
+      setSelectedAgentId(routeAgent.id);
       setActiveView("new-chat");
       setMutationError("");
       try {
-        const existingConversation = (conversationsByAgent.get(hermesDirectAgent.id) ?? [])[0];
+        const existingConversation = (conversationsByAgent.get(routeAgent.id) ?? [])[0];
         if (existingConversation) {
           sendConversationId = existingConversation.id;
           setSelectedConversationId(existingConversation.id);
         } else {
           setCreatingConversation(true);
-          const conversation = await createConversationForAgent(hermesDirectAgent);
+          const conversation = await createConversationForAgent(routeAgent);
           sendConversationId = conversation.id;
         }
       } catch (err) {
@@ -1156,6 +1161,7 @@ export default function App() {
         setChatStatus("error");
       }
       await loadBootstrap(sendAgent.id, sendConversationId);
+      setPendingRouteAgentId(null);
       if (finalContent) setChatStatus("idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send message.";
@@ -1351,7 +1357,16 @@ export default function App() {
                 />
                 <div className="relative mt-auto rounded-[28px] border border-border bg-card/70 p-4 sm:p-5">
                   {hermesDirectHint && <div className="mb-2 text-xs text-foreground/85">Chatting with Hermes (your build agent)</div>}
-                  <AgentSelectionPopover open={showAgentRoutePicker} agents={bootstrap.agents} onSelectAgent={(agent) => void selectAgentForDraft(agent)} onSelectHermesDirect={handleSelectHermesDirect} />
+                  <AgentSelectionPopover
+                    open={showAgentRoutePicker}
+                    agents={bootstrap.agents}
+                    onSelectAgent={(agent) => {
+                      setPendingRouteAgentId(agent.id);
+                      setHermesDirectHint(false);
+                      setShowAgentRoutePicker(false);
+                    }}
+                    onSelectHermesDirect={handleSelectHermesDirect}
+                  />
                   <div className="flex flex-col gap-3">
                     <textarea
                       ref={composerRef}
@@ -1375,11 +1390,11 @@ export default function App() {
                           className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-background/45 px-3 py-1.5 text-xs text-foreground/80 transition hover:border-foreground/25 hover:bg-foreground/6"
                         >
                           <TerminalSquare className="h-3.5 w-3.5" />
-                          {hermesDirectHint ? "Route: Hermes (direct)" : "Choose route"}
+                          {pendingRouteAgent ? `Route: ${pendingRouteAgent.name}` : "Choose route"}
                         </button>
                         <div className="text-xs leading-5 text-muted-foreground">{composerHint}</div>
                       </div>
-                      <Button className="border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)] text-[var(--warm-glow)] hover:bg-[color-mix(in_srgb,var(--warm-glow)_18%,transparent)]" onClick={() => void handleSendMessage()} disabled={sendingMessage || !selectedConversation || !composerText.trim()}>
+                      <Button className="border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)] text-[var(--warm-glow)] hover:bg-[color-mix(in_srgb,var(--warm-glow)_18%,transparent)]" onClick={() => void handleSendMessage()} disabled={sendingMessage || !composerText.trim()}>
                         {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                         {sendingMessage ? "Sending..." : "Send"}
                       </Button>
