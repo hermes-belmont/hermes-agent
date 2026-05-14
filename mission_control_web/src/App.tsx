@@ -313,6 +313,7 @@ export default function App() {
   const lastUserMessageRef = useRef<{ agentId: string; conversationId: string; content: string } | null>(null);
   const threadScrollRef = useRef<HTMLDivElement | null>(null);
   const shouldAutoScrollRef = useRef(true);
+  const autoSelectingHermesDirectRef = useRef(false);
   const [mutationError, setMutationError] = useState("");
   const [mutationNotice, setMutationNotice] = useState("");
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1016,6 +1017,17 @@ export default function App() {
       void selectAgentForDraft(hermesDirectAgent, true);
     }
   };
+
+  useEffect(() => {
+    if (activeView !== "new-chat" || selectedAgentId || !bootstrap || !hermesDirectAgent || autoSelectingHermesDirectRef.current) return;
+    autoSelectingHermesDirectRef.current = true;
+    setHermesDirectHint(true);
+    void selectAgentForDraft(hermesDirectAgent, true).finally(() => {
+      autoSelectingHermesDirectRef.current = false;
+    });
+    // Intentionally keyed to the route-selection inputs so the default route is selected once per New Chat reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeView, bootstrap, selectedAgentId]);
 
   const handleComposerChange = (value: string) => {
     setComposerText(value);

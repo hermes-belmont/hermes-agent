@@ -41,8 +41,8 @@ export function GreetingHero({ displayName = "David", avatarColor = "#ffbd38", a
   }, []);
 
   return (
-    <div className="relative flex min-h-[420px] flex-1 items-center justify-center overflow-hidden rounded-[28px] px-6 py-12 text-center">
-      <div className="absolute inset-[30px_60px] rounded-full bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--warm-glow)_10%,transparent),transparent_65%)]" />
+    <div className="relative flex min-h-[420px] flex-1 items-center justify-center rounded-[28px] px-6 py-12 text-center">
+      <div className="absolute inset-[30px_60px] overflow-hidden rounded-full bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--warm-glow)_10%,transparent),transparent_65%)]" />
       <div className="relative z-10 flex flex-col items-center">
         <div
           className="flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-[24px] border border-[color-mix(in_srgb,var(--warm-glow)_32%,transparent)] font-expanded text-[42px] font-medium text-background-base"

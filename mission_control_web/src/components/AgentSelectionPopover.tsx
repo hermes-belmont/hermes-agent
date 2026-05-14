@@ -15,9 +15,6 @@ export function AgentSelectionPopover({ open, agents, onSelectAgent, onSelectHer
   return (
     <div className="absolute bottom-[calc(100%+10px)] left-0 right-0 z-40 mx-auto max-h-[320px] max-w-3xl overflow-y-auto rounded-xl border border-foreground/18 bg-background p-1.5 shadow-[0_16px_48px_rgba(0,0,0,0.4)]">
       <div className="px-2.5 pb-1 pt-2 text-[9px] uppercase tracking-[0.16em] text-foreground/70">ROUTE THIS MESSAGE TO</div>
-      {recent.length > 0 && <Section label="Recent agents" agents={recent} onSelectAgent={onSelectAgent} />}
-      <Section label="All agents" agents={agents} onSelectAgent={onSelectAgent} />
-      <div className="my-1 border-t border-foreground/8" />
       <button type="button" onClick={onSelectHermesDirect} className="flex w-full items-start gap-3 rounded-lg border border-[color-mix(in_srgb,var(--warm-glow)_18%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_6%,transparent)] px-2.5 py-2.5 text-left hover:bg-[color-mix(in_srgb,var(--warm-glow)_10%,transparent)]">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)] text-[var(--warm-glow)]"><Terminal className="h-4 w-4" /></div>
         <div className="min-w-0">
@@ -25,6 +22,9 @@ export function AgentSelectionPopover({ open, agents, onSelectAgent, onSelectHer
           <div className="mt-1 text-[11px] leading-4 text-foreground/52">Route to the build agent without choosing a custom operator.</div>
         </div>
       </button>
+      <div className="my-1 border-t border-foreground/8" />
+      {recent.length > 0 && <Section label="Recent agents" agents={recent} onSelectAgent={onSelectAgent} />}
+      <Section label="All agents" agents={agents} onSelectAgent={onSelectAgent} />
     </div>
   );
 }
