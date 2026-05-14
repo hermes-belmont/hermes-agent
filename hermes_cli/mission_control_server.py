@@ -1935,6 +1935,17 @@ def _read_json_records(directory: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _normalize_tracked_item(item: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(item)
+    if normalized.get("tags") is None:
+        normalized["tags"] = []
+    if normalized.get("entity") is None:
+        normalized["entity"] = ""
+    if normalized.get("category") is None:
+        normalized["category"] = ""
+    return normalized
+
+
 def _build_account_export(state: dict[str, Any]) -> dict[str, Any]:
     state_tracked = state.get("tracked_items") if isinstance(state.get("tracked_items"), dict) else {}
     state_messages = state.get("messages") if isinstance(state.get("messages"), dict) else {}
@@ -2686,21 +2697,23 @@ async def delete_message_endpoint(message_id: str, agent_id: str | None = None):
 
 @app.get("/api/tracked-items")
 async def list_tracked_items_endpoint(agent_id: str | None = None, status: str | None = None, category: str | None = None, priority: str | None = None, entity: str | None = None):
-    return tracked_items_service.list_all_items({"agent_id": agent_id, "status": status, "category": category, "priority": priority, "entity": entity})
+    items = tracked_items_service.list_all_items({"agent_id": agent_id, "status": status, "category": category, "priority": priority, "entity": entity})
+    return [_normalize_tracked_item(item) for item in items]
 
 
 @app.get("/api/tracked-items/by-agent/{agent_id}")
 async def tracked_items_by_agent_endpoint(agent_id: str):
-    return tracked_items_service.load_items_for_agent(agent_id)
+    return [_normalize_tracked_item(item) for item in tracked_items_service.load_items_for_agent(agent_id)]
 
 
 @app.post("/api/tracked-items")
 async def create_tracked_item_endpoint(payload: dict[str, Any]):
     try:
+        payload = _normalize_tracked_item(payload)
         agent_id = str(payload.get("agent_id") or "")
         if not agent_id:
             raise ValueError("agent_id is required")
-        return tracked_items_service.save_item(agent_id, payload)
+        return _normalize_tracked_item(tracked_items_service.save_item(agent_id, payload))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -2708,7 +2721,8 @@ async def create_tracked_item_endpoint(payload: dict[str, Any]):
 @app.put("/api/tracked-items/{item_id}")
 async def update_tracked_item_endpoint(item_id: str, payload: dict[str, Any]):
     try:
-        return tracked_items_service.update_item(item_id, payload)
+        payload = _normalize_tracked_item(payload)
+        return _normalize_tracked_item(tracked_items_service.update_item(item_id, payload))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Tracked item not found") from exc
     except ValueError as exc:
@@ -2726,7 +2740,7 @@ async def delete_tracked_item_endpoint(item_id: str):
 @app.post("/api/tracked-items/{item_id}/action")
 async def tracked_item_action_endpoint(item_id: str, payload: dict[str, Any]):
     try:
-        return tracked_items_service.apply_action(item_id, str(payload.get("action") or ""))
+        return _normalize_tracked_item(tracked_items_service.apply_action(item_id, str(payload.get("action") or "")))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Tracked item not found") from exc
     except ValueError as exc:
