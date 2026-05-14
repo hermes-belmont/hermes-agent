@@ -566,7 +566,6 @@ export default function App() {
     setSettingsSection(section);
     navigateToSettingsSection(section);
   }, []);
-  const displayName = account.display_name;
   const firstTimeUser = (bootstrap?.conversations.length ?? 0) === 0;
   const hermesDirectAgent = useMemo(() => {
     const agents = bootstrap?.agents ?? [];
@@ -1300,7 +1299,9 @@ export default function App() {
             ) : !selectedAgent && !selectedConversation ? (
               <div className="flex flex-1 flex-col">
                                 <GreetingHero
-                  displayName={displayName}
+                  displayName={account.display_name}
+                  avatarColor={account.avatar_color}
+                  avatarImage={account.avatar_image ?? null}
                   models={recentsForPicker}
                   activeModel={activeModelPreference}
                   onSelectModel={setModelPreference}

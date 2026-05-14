@@ -111,7 +111,7 @@ describe("Account settings page", () => {
   it("renders all four sections", () => {
     renderAccount();
 
-    expect(host.textContent).toContain("Identity");
+    expect(host.textContent).toContain("Profiles");
     expect(host.textContent).toContain("Time Zone");
     expect(host.textContent).toContain("Data Export");
     expect(host.textContent).toContain("Authentication");

@@ -15,6 +15,8 @@ function computeGreeting(date: Date, name = "David") {
 
 type Props = {
   displayName?: string;
+  avatarColor?: string;
+  avatarImage?: string | null;
   /** Already padded to RECENTS_CAP entries by the caller (App.tsx). */
   models: string[];
   activeModel: string;
@@ -22,7 +24,7 @@ type Props = {
   onOpenSettings: () => void;
 };
 
-export function GreetingHero({ displayName = "David", models, activeModel, onSelectModel, onOpenSettings }: Props) {
+export function GreetingHero({ displayName = "David", avatarColor = "#ffbd38", avatarImage = null, models, activeModel, onSelectModel, onOpenSettings }: Props) {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -42,8 +44,11 @@ export function GreetingHero({ displayName = "David", models, activeModel, onSel
     <div className="relative flex min-h-[420px] flex-1 items-center justify-center overflow-hidden rounded-[28px] px-6 py-12 text-center">
       <div className="absolute inset-[30px_60px] rounded-full bg-[radial-gradient(circle_at_center,color-mix(in_srgb,var(--warm-glow)_10%,transparent),transparent_65%)]" />
       <div className="relative z-10 flex flex-col items-center">
-        <div className="flex h-[92px] w-[92px] items-center justify-center rounded-[24px] border border-[color-mix(in_srgb,var(--warm-glow)_32%,transparent)] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--warm-glow)_20%,transparent),color-mix(in_srgb,var(--warm-glow-deep)_8%,transparent))] font-expanded text-[42px] font-medium text-[var(--warm-glow)]">
-          U
+        <div
+          className="flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-[24px] border border-[color-mix(in_srgb,var(--warm-glow)_32%,transparent)] font-expanded text-[42px] font-medium text-background-base"
+          style={avatarImage ? undefined : { background: avatarColor }}
+        >
+          {avatarImage ? <img src={avatarImage} alt="" className="h-full w-full object-cover" /> : (displayName.trim()[0] || "D").toUpperCase()}
         </div>
         <div className="mt-[22px] text-[9px] uppercase tracking-[0.24em] text-foreground/70">Mission Control</div>
         <h1 className="mt-2.5 font-expanded text-[32px] font-medium tracking-[-0.01em] text-foreground">{computeGreeting(now, displayName)}</h1>
