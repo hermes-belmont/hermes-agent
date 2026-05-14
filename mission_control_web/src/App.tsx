@@ -1027,19 +1027,10 @@ export default function App() {
     });
     // Intentionally keyed to the route-selection inputs so the default route is selected once per New Chat reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, bootstrap, composerText, selectedAgentId]);
+  }, [activeView, bootstrap, selectedAgentId]);
 
   const handleComposerChange = (value: string) => {
     setComposerText(value);
-    if (activeView === "new-chat" && !selectedAgent && value.length > 0) {
-      if (firstTimeUser) {
-        setHermesDirectHint(true);
-        setShowAgentRoutePicker(false);
-        if (hermesDirectAgent) void selectAgentForDraft(hermesDirectAgent, true);
-      } else {
-        setShowAgentRoutePicker(true);
-      }
-    }
     if (!value.trim()) {
       setShowAgentRoutePicker(false);
     }
@@ -1047,12 +1038,45 @@ export default function App() {
 
   const handleSendMessage = async (overrideContent?: string) => {
     const content = (overrideContent ?? composerText).trim();
-    if (!selectedAgent || !selectedConversation || !content || sendingMessage) {
+    if (!content || sendingMessage) {
+      return;
+    }
+
+    let sendAgent = selectedAgent;
+    let sendConversationId = selectedConversation?.id ?? null;
+    if (activeView === "new-chat" && !sendAgent) {
+      if (!hermesDirectAgent) return;
+      sendAgent = hermesDirectAgent;
+      setShowAgentRoutePicker(false);
+      setHermesDirectHint(true);
+      setSelectedAgentId(hermesDirectAgent.id);
+      setActiveView("new-chat");
+      setMutationError("");
+      try {
+        const existingConversation = (conversationsByAgent.get(hermesDirectAgent.id) ?? [])[0];
+        if (existingConversation) {
+          sendConversationId = existingConversation.id;
+          setSelectedConversationId(existingConversation.id);
+        } else {
+          setCreatingConversation(true);
+          const response = await api.createConversation(hermesDirectAgent.id, buildConversationTitle(hermesDirectAgent, 0));
+          sendConversationId = response.conversation.id;
+          await loadBootstrap(hermesDirectAgent.id, response.conversation.id);
+        }
+      } catch (err) {
+        setMutationError(err instanceof Error ? err.message : "Failed to route message.");
+        return;
+      } finally {
+        setCreatingConversation(false);
+      }
+    }
+
+    if (!sendAgent || !sendConversationId) {
       return;
     }
 
     shouldAutoScrollRef.current = true;
-    lastUserMessageRef.current = { agentId: selectedAgent.id, conversationId: selectedConversation.id, content };
+    lastUserMessageRef.current = { agentId: sendAgent.id, conversationId: sendConversationId, content };
     const optimisticUserId = tempMessageIdRef.current;
     tempMessageIdRef.current -= 1;
     const optimisticAssistantId = tempMessageIdRef.current;
@@ -1087,8 +1111,8 @@ export default function App() {
     try {
       const result = await sendChatStream(
         {
-          agent_id: selectedAgent.id,
-          conversation_id: selectedConversation.id,
+          agent_id: sendAgent.id,
+          conversation_id: sendConversationId,
           message: { role: "user", content },
         },
         {
@@ -1125,7 +1149,7 @@ export default function App() {
         setChatError("Stream completed without assistant content.");
         setChatStatus("error");
       }
-      await loadBootstrap(selectedAgent.id, selectedConversation.id);
+      await loadBootstrap(sendAgent.id, sendConversationId);
       if (finalContent) setChatStatus("idle");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send message.";
@@ -1136,7 +1160,7 @@ export default function App() {
       )));
       setChatError(message);
       setChatStatus("error");
-      await loadBootstrap(selectedAgent.id, selectedConversation.id);
+      await loadBootstrap(sendAgent.id, sendConversationId);
     } finally {
       setSendingMessage(false);
     }
