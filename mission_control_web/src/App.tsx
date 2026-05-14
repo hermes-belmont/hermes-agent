@@ -56,6 +56,7 @@ import {
   DEFAULT_MODEL_STORAGE_KEY,
 } from "@/lib/model-recents";
 import { navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
+import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 
 type NoticeTone = "info" | "success" | "warning" | "error";
 type LoadState = "idle" | "loading" | "error";
@@ -63,7 +64,6 @@ type LoadState = "idle" | "loading" | "error";
 const ACTIVE_VIEW_STORAGE_KEY = "mission-control-active-view";
 const RAIL_COLLAPSED_STORAGE_KEY = "mission-control-rail-collapsed";
 const MODEL_PREFERENCE_STORAGE_KEY = "mission-control-model-preference";
-const DEFAULT_ACCOUNT: AccountRecord = { display_name: "David", avatar_color: "#ffbd38", preferences: { timezone: "America/New_York" } };
 
 
 type AgentDraft = {

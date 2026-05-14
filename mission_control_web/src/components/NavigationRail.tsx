@@ -2,6 +2,7 @@ import { Activity, BellRing, Download, Inbox, ListTodo, Menu, MessageSquarePlus,
 import type { SettingsSection } from "@/components/SettingsView";
 import { navigateToSettingsSection } from "@/lib/hash-routing";
 import type { AccountRecord } from "@/lib/types";
+import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 import { cn } from "@/lib/utils";
 
 export type ActiveView = "new-chat" | "briefings" | "inbox" | "agents" | "tracking" | "monitor" | "maintenance" | "settings";
@@ -26,8 +27,6 @@ type RailContentProps = {
   unreadTotal?: number;
   account?: AccountRecord;
 };
-
-const DEFAULT_ACCOUNT: AccountRecord = { display_name: "David", avatar_color: "#ffbd38", preferences: { timezone: "America/New_York" } };
 
 function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettingsSection, onOpenInstall, unreadTotal = 0, account = DEFAULT_ACCOUNT }: RailContentProps) {
   const openSettingsSection = (section: SettingsSection) => {
