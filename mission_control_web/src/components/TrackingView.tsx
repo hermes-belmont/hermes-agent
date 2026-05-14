@@ -45,7 +45,7 @@ export function TrackingView({ agents, initialAgentId, initialItemId }: Props) {
   const [agentValidation, setAgentValidation] = useState("");
 
   const agentMap = useMemo(() => new Map(agents.map((a) => [a.id, a])), [agents]);
-  const load = async () => { setLoading(true); try { setItems(await api.listTrackedItems()); } finally { setLoading(false); } };
+  const load = async () => { setLoading(true); try { const raw = await api.listTrackedItems(); setItems(raw.map((it) => ({ ...it, tags: Array.isArray(it.tags) ? it.tags : [] }))); } finally { setLoading(false); } };
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void load(); }, []);
   // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -57,7 +57,7 @@ export function TrackingView({ agents, initialAgentId, initialItemId }: Props) {
     (categoryFilter === "all" || item.category === categoryFilter) &&
     (priorityFilter === "all" || item.priority === priorityFilter) &&
     statusFilters.includes(item.status)
-  ).sort((a, b) => sort === "priority" ? priorities.indexOf(a.priority) - priorities.indexOf(b.priority) : sort === "updated" ? b.updated_at.localeCompare(a.updated_at) : (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")), [items, agentFilter, entityFilter, categoryFilter, priorityFilter, statusFilters, sort]);
+  ).sort((a, b) => sort === "priority" ? priorities.indexOf(a.priority) - priorities.indexOf(b.priority) : sort === "updated" ? (b.updated_at ?? "").localeCompare(a.updated_at ?? "") : (a.due_date ?? "9999-12-31").localeCompare(b.due_date ?? "9999-12-31")), [items, agentFilter, entityFilter, categoryFilter, priorityFilter, statusFilters, sort]);
 
   const openAdd = () => { const selected = agentFilter !== "all" ? agentFilter : resolveDefaultAgentForAdd(agents); setDraft(buildEmptyTrackingDraft(agents, selected)); setAgentValidation(""); setModal({ mode: "add" }); };
   const openEdit = (item: TrackedItem) => { setAgentValidation(""); setDraft({ ...item, tagsText: item.tags.join(", ") }); setModal({ mode: "edit", item }); };
