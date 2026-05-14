@@ -806,22 +806,29 @@ export default function App() {
     }
   };
 
+  const createConversationForAgent = async (targetAgent: AgentRecord) => {
+    const response = await api.createConversation(
+      targetAgent.id,
+      buildConversationTitle(targetAgent, (conversationsByAgent.get(targetAgent.id) ?? []).length),
+    );
+    await loadBootstrap(targetAgent.id, response.conversation.id);
+    return response.conversation;
+  };
+
   const handleCreateConversation = async (agentOverride?: AgentRecord) => {
     const targetAgent = agentOverride ?? selectedAgent;
-    if (!targetAgent) return;
+    if (!targetAgent) return null;
     setCreatingConversation(true);
     setMutationError("");
     setMutationNotice("");
     try {
-      const response = await api.createConversation(
-        targetAgent.id,
-        buildConversationTitle(targetAgent, (conversationsByAgent.get(targetAgent.id) ?? []).length),
-      );
+      const conversation = await createConversationForAgent(targetAgent);
       shouldFocusComposerRef.current = true;
-      await loadBootstrap(targetAgent.id, response.conversation.id);
-      setMutationNotice(`Created ${response.conversation.title}. Send the first message to start a persisted transcript.`);
+      setMutationNotice(`Created ${conversation.title}. Send the first message to start a persisted transcript.`);
+      return conversation;
     } catch (err) {
       setMutationError(err instanceof Error ? err.message : "Failed to create conversation.");
+      return null;
     } finally {
       setCreatingConversation(false);
     }
@@ -1059,9 +1066,8 @@ export default function App() {
           setSelectedConversationId(existingConversation.id);
         } else {
           setCreatingConversation(true);
-          const response = await api.createConversation(hermesDirectAgent.id, buildConversationTitle(hermesDirectAgent, 0));
-          sendConversationId = response.conversation.id;
-          await loadBootstrap(hermesDirectAgent.id, response.conversation.id);
+          const conversation = await createConversationForAgent(hermesDirectAgent);
+          sendConversationId = conversation.id;
         }
       } catch (err) {
         setMutationError(err instanceof Error ? err.message : "Failed to route message.");
