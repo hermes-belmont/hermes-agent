@@ -2,7 +2,7 @@ import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResu
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
-import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts } from "@/lib/types";
+import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -69,6 +69,7 @@ function filenameFromDisposition(disposition: string | null): string {
 export const api = {
   getBootstrap: () => fetchJSON<BootstrapResponse>("/api/mission-control/bootstrap"),
   getAccount: () => fetchJSON<AccountRecord>("/api/account"),
+  getAgentProfiles: () => fetchJSON<{ profiles: HermesProfile[]; error?: string }>("/api/agent-profiles"),
   updateAccount: (patch: Partial<Omit<AccountRecord, "preferences">> & { preferences?: Partial<AccountRecord["preferences"]> }) => fetchJSON<AccountRecord>("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }),
   downloadAccountExport: async (expectations?: { accept: "application/json"; disposition: "attachment" }) => {
     void expectations;

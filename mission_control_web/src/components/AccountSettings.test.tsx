@@ -14,6 +14,7 @@ vi.mock("@/lib/api", () => ({
     getAccount: vi.fn(),
     updateAccount: vi.fn(),
     downloadAccountExport: vi.fn(),
+    getAgentProfiles: vi.fn(),
     getUserBackgrounds: vi.fn(async () => []),
   },
 }));
@@ -94,6 +95,7 @@ beforeEach(() => {
   vi.mocked(api.getAccount).mockResolvedValue(account);
   vi.mocked(api.updateAccount).mockResolvedValue(account);
   vi.mocked(api.downloadAccountExport).mockResolvedValue("mission-control-export-2026-05-13.json");
+  vi.mocked(api.getAgentProfiles).mockResolvedValue({ profiles: [] });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -137,7 +139,7 @@ describe("Account settings page", () => {
       input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "David Umbrella" }));
     });
 
-    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save identity"));
+    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save"));
     expect(save).toBeTruthy();
     await act(async () => {
       save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
@@ -157,7 +159,7 @@ describe("Account settings page", () => {
     await act(async () => {
       fileInput.dispatchEvent(new Event("change", { bubbles: true }));
     });
-    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save identity"));
+    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save"));
     await act(async () => {
       save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
@@ -189,7 +191,7 @@ describe("Account settings page", () => {
     await act(async () => {
       remove?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save identity"));
+    const save = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Save"));
     await act(async () => {
       save?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });

@@ -2398,6 +2398,20 @@ async def system_tailscale_status() -> dict[str, Any]:
     return await asyncio.to_thread(_tailscale_status)
 
 
+@app.get("/api/agent-profiles")
+async def get_agent_profiles_endpoint() -> dict[str, Any]:
+    try:
+        result = _dashboard_json("/api/profiles")
+        if not result.get("ok"):
+            raise RuntimeError(f"Gateway profile mirror returned {result.get('status')}: {result.get('body')}")
+        body = result.get("body")
+        if not isinstance(body, dict):
+            raise RuntimeError("Gateway profile mirror returned a non-JSON object response")
+        return body
+    except Exception as exc:
+        return {"profiles": [], "error": str(exc)}
+
+
 @app.get("/api/account")
 async def get_account_endpoint() -> dict[str, Any]:
     state = _load_state()

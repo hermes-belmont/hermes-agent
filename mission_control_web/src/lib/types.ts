@@ -16,6 +16,8 @@ export interface AccountRecord {
   preferences: { timezone: string };
 }
 
+export type HermesProfile = { name: string; path: string; is_default: boolean; model: string | null; provider: string | null; has_env: boolean; skill_count: number };
+
 export interface UsageSummary {
   conversation_count?: number;
   input_tokens: number;

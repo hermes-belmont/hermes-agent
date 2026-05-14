@@ -1,12 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Download, ImageIcon, Lock, Monitor, Palette, Server, Upload, UserCircle, X } from "lucide-react";
+import { Check, Download, ImageIcon, Loader2, Lock, Monitor, Palette, RefreshCw, Server, Upload, UserCircle, X } from "lucide-react";
 import { getModelTier, MODEL_TIERS, providerKeyForModel, type ModelTier } from "@/lib/model-tiers";
 import { DEFAULT_MODEL_STORAGE_KEY, getDefaultModel, setDefaultModel } from "@/lib/model-recents";
 import { api } from "@/lib/api";
 import { resizeAvatarFileToDataUri } from "@/lib/avatar";
 import { DesktopRemoteSettings } from "@/components/DesktopRemoteSettings";
 import { applyBackground, setStoredBackground, type BackgroundId, type UserBackground } from "@/lib/backgrounds";
-import type { AccountRecord } from "@/lib/types";
+import type { AccountRecord, HermesProfile } from "@/lib/types";
 import { CURATED_THEMES, getThemeDefinition, type CuratedThemeId } from "@/lib/themes";
 import { cn } from "@/lib/utils";
 
@@ -384,6 +384,9 @@ function AccountPage({ account, onAccountChange }: { account: AccountRecord; onA
   const [identityMessage, setIdentityMessage] = useState("");
   const [exportMessage, setExportMessage] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [agentProfiles, setAgentProfiles] = useState<HermesProfile[]>([]);
+  const [agentProfilesLoading, setAgentProfilesLoading] = useState(false);
+  const [agentProfilesError, setAgentProfilesError] = useState("");
   const [timezoneMessage, setTimezoneMessage] = useState("");
   const [detectedZone] = useState(() => {
     try {
@@ -463,6 +466,26 @@ function AccountPage({ account, onAccountChange }: { account: AccountRecord; onA
     }
   };
 
+  const refreshAgentProfiles = async () => {
+    setAgentProfilesLoading(true);
+    setAgentProfilesError("");
+    try {
+      const payload = await api.getAgentProfiles();
+      const profiles = Array.isArray(payload.profiles) ? payload.profiles : [];
+      setAgentProfiles(profiles);
+      setAgentProfilesError(typeof payload.error === "string" ? payload.error : "");
+    } catch (err) {
+      setAgentProfiles([]);
+      setAgentProfilesError(err instanceof Error ? err.message : "Unable to load agent profiles.");
+    } finally {
+      setAgentProfilesLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshAgentProfiles();
+  }, []);
+
   return (
     <section className="flex flex-1 flex-col gap-4">
       <header>
@@ -500,9 +523,53 @@ function AccountPage({ account, onAccountChange }: { account: AccountRecord; onA
           </div>
         </div>
         <div className="mt-3 flex items-center gap-3">
-          <button type="button" onClick={() => void saveIdentity()} disabled={!dirty || savingIdentity} className="rounded-lg border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_10%,transparent)] px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-[var(--warm-glow)] transition disabled:cursor-not-allowed disabled:opacity-45">{savingIdentity ? "Saving" : "Save identity"}</button>
+          <button type="button" onClick={() => void saveIdentity()} disabled={!dirty || savingIdentity} className="rounded-lg border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_10%,transparent)] px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-[var(--warm-glow)] transition disabled:cursor-not-allowed disabled:opacity-45">{savingIdentity ? "Saving" : "Save"}</button>
           {identityMessage && <span className="text-[11px] text-foreground/70">{identityMessage}</span>}
         </div>
+      </section>
+
+      <section className="rounded-2xl border border-border/70 bg-background/40 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="font-expanded text-base font-medium text-foreground">Agent Profile</h2>
+            <p className="mt-1 text-[11px] text-muted-foreground">Read-only Hermes agent profiles mirrored from the local Dashboard gateway.</p>
+          </div>
+          <button type="button" onClick={() => void refreshAgentProfiles()} disabled={agentProfilesLoading} className="inline-flex items-center gap-2 rounded-lg border border-border/70 px-3 py-2 text-[11px] uppercase tracking-[0.12em] text-foreground/80 transition hover:bg-foreground/6 disabled:opacity-55">
+            {agentProfilesLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}Refresh
+          </button>
+        </div>
+        {agentProfilesLoading && agentProfiles.length === 0 ? (
+          <div className="mt-3 text-[11px] text-muted-foreground">Loading Hermes profiles…</div>
+        ) : agentProfilesError ? (
+          <div className="mt-3 rounded-xl border border-[#ffbd38]/25 bg-[#ffbd38]/8 p-3 text-[11px] leading-5 text-[#ffbd38]">{agentProfilesError}</div>
+        ) : agentProfiles.length === 0 ? (
+          <div className="mt-3 rounded-xl border border-dashed border-foreground/18 p-3 text-[11px] text-muted-foreground">No Hermes profiles reported by the gateway.</div>
+        ) : (
+          <div className="mt-3 grid gap-2">
+            {agentProfiles.map((profile, index) => {
+              const name = typeof profile?.name === "string" && profile.name.trim() ? profile.name : `Profile ${index + 1}`;
+              const path = typeof profile?.path === "string" ? profile.path : "";
+              const model = typeof profile?.model === "string" && profile.model.trim() ? profile.model : "No model configured";
+              const provider = typeof profile?.provider === "string" && profile.provider.trim() ? profile.provider : "No provider configured";
+              const skillCount = Number.isFinite(Number(profile?.skill_count)) ? Number(profile.skill_count) : 0;
+              return (
+                <div key={`${name}-${path || index}`} className="rounded-xl border border-foreground/10 bg-background/45 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <div className="font-expanded text-sm font-medium text-foreground">{name}</div>
+                    {Boolean(profile?.is_default) && <span className="rounded-full border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_10%,transparent)] px-2 py-[2px] text-[9px] uppercase tracking-[0.14em] text-[var(--warm-glow)]">Default</span>}
+                    {Boolean(profile?.has_env) && <span className="rounded-full border border-[#66e5a7]/35 bg-[#66e5a7]/10 px-2 py-[2px] text-[9px] uppercase tracking-[0.14em] text-[#66e5a7]">Env</span>}
+                  </div>
+                  <div className="mt-2 grid gap-1 text-[11px] text-muted-foreground md:grid-cols-3">
+                    <div>Model: <span className="text-foreground/85">{model}</span></div>
+                    <div>Provider: <span className="text-foreground/85">{provider}</span></div>
+                    <div>Skills: <span className="text-foreground/85">{skillCount}</span></div>
+                  </div>
+                  <div className="mt-2 truncate font-mono text-[10px] text-foreground/65">{path || "Path unavailable"}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       <section className="rounded-2xl border border-border/70 bg-background/40 p-4">
