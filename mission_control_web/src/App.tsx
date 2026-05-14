@@ -1019,7 +1019,7 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (activeView !== "new-chat" || selectedAgentId || !bootstrap || !hermesDirectAgent || autoSelectingHermesDirectRef.current) return;
+    if (activeView !== "new-chat" || selectedAgentId || !bootstrap || !hermesDirectAgent || autoSelectingHermesDirectRef.current || composerText.trim().length === 0) return;
     autoSelectingHermesDirectRef.current = true;
     setHermesDirectHint(true);
     void selectAgentForDraft(hermesDirectAgent, true).finally(() => {
@@ -1027,7 +1027,7 @@ export default function App() {
     });
     // Intentionally keyed to the route-selection inputs so the default route is selected once per New Chat reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeView, bootstrap, selectedAgentId]);
+  }, [activeView, bootstrap, composerText, selectedAgentId]);
 
   const handleComposerChange = (value: string) => {
     setComposerText(value);
