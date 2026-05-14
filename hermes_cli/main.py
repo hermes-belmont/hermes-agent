@@ -7692,6 +7692,25 @@ def _cmd_update_impl(args, gateway_mode: bool):
                         input_fn=gw_input_fn,
                     )
 
+        # Switch back to the user's original branch if the update moved us to main.
+        # The commit_count == 0 path already does this; the "found new commits"
+        # path did not, leaving the user stranded on main with their work
+        # reapplied as a stash. This restores parity.
+        if current_branch not in {"main", "HEAD"}:
+            switchback = subprocess.run(
+                git_cmd + ["checkout", current_branch],
+                cwd=PROJECT_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if switchback.returncode == 0:
+                print(f"  ✓ Switched back to {current_branch}")
+            else:
+                print(f"  ⚠ Could not switch back to {current_branch} — you are on main.")
+                if switchback.stderr.strip():
+                    print(f"    {switchback.stderr.strip()}")
+
         _invalidate_update_cache()
 
         # Clear stale .pyc bytecode cache — prevents ImportError on gateway
