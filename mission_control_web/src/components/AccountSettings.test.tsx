@@ -72,8 +72,8 @@ const account: Account = {
   preferences: { timezone: "America/New_York" },
 };
 
-function renderAccount(onAccountChange = vi.fn()) {
-  act(() => {
+async function renderAccount(onAccountChange = vi.fn(), accountOverride: Account = account) {
+  await act(async () => {
     root.render(
       <SettingsView
         section="account"
@@ -83,7 +83,7 @@ function renderAccount(onAccountChange = vi.fn()) {
         onSelectTheme={vi.fn()}
         activeBackground="theme-default"
         onSelectBackground={vi.fn()}
-        account={account}
+        account={accountOverride}
         onAccountChange={onAccountChange}
         onOpenInstall={vi.fn()}
       />,
@@ -110,8 +110,8 @@ afterEach(() => {
 });
 
 describe("Account settings page", () => {
-  it("renders all four sections", () => {
-    renderAccount();
+  it("renders all four sections", async () => {
+    await renderAccount();
 
     expect(host.textContent).toContain("Profiles");
     expect(host.textContent).toContain("Time Zone");
@@ -130,7 +130,7 @@ describe("Account settings page", () => {
 
   it("saves identity changes with the correct PATCH payload", async () => {
     const onAccountChange = vi.fn();
-    renderAccount(onAccountChange);
+    await renderAccount(onAccountChange);
 
     const input = host.querySelector('input[aria-label="Display name"]') as HTMLInputElement;
     await act(async () => {
@@ -152,7 +152,7 @@ describe("Account settings page", () => {
   it("saving identity sends avatar_image in the PATCH payload", async () => {
     mockAvatarBrowser("data:image/png;base64,YXZhdGFy");
     vi.mocked(api.updateAccount).mockResolvedValue({ ...account, avatar_image: "data:image/png;base64,YXZhdGFy" });
-    renderAccount();
+    await renderAccount();
 
     const fileInput = host.querySelector('input[aria-label="Upload Avatar"]') as HTMLInputElement;
     Object.defineProperty(fileInput, "files", { configurable: true, value: [new File(["x"], "avatar.png", { type: "image/png" })] });
@@ -170,22 +170,7 @@ describe("Account settings page", () => {
   it("remove custom avatar sends avatar_image null", async () => {
     const accountWithAvatar = { ...account, avatar_image: "data:image/png;base64,YXZhdGFy" };
     vi.mocked(api.updateAccount).mockResolvedValue({ ...account, avatar_image: null });
-    act(() => {
-      root.render(
-        <SettingsView
-          section="account"
-          catalog={[]}
-          onSelectSection={vi.fn()}
-          activeTheme="default"
-          onSelectTheme={vi.fn()}
-          activeBackground="theme-default"
-          onSelectBackground={vi.fn()}
-          account={accountWithAvatar}
-          onAccountChange={vi.fn()}
-          onOpenInstall={vi.fn()}
-        />,
-      );
-    });
+    await renderAccount(vi.fn(), accountWithAvatar);
 
     const remove = Array.from(host.querySelectorAll("button")).find((button) => button.textContent?.includes("Remove custom avatar"));
     await act(async () => {
@@ -200,7 +185,7 @@ describe("Account settings page", () => {
   });
 
   it("persists a time zone override on change", async () => {
-    renderAccount();
+    await renderAccount();
 
     const select = host.querySelector('select[aria-label="Override time zone"]') as HTMLSelectElement;
     await act(async () => {
@@ -212,7 +197,7 @@ describe("Account settings page", () => {
   });
 
   it("data export triggers a download request with JSON attachment headers", async () => {
-    renderAccount();
+    await renderAccount();
 
     const button = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.includes("Download State Backup"));
     await act(async () => {
@@ -223,8 +208,8 @@ describe("Account settings page", () => {
     expect(host.textContent).toContain("Downloaded mission-control-export-2026-05-13.json");
   });
 
-  it("renders the authentication placeholder without action buttons", () => {
-    renderAccount();
+  it("renders the authentication placeholder without action buttons", async () => {
+    await renderAccount();
 
     expect(host.textContent).toContain("Public preview mode");
     expect(host.textContent).toContain("Authentication is currently disabled. This instance is accessible without credentials.");
@@ -270,23 +255,8 @@ describe("Account settings page", () => {
     expect(image.src).toContain("data:image/png;base64,YXZhdGFy");
   });
 
-  it("dims the color palette when a custom avatar is active", () => {
-    act(() => {
-      root.render(
-        <SettingsView
-          section="account"
-          catalog={[]}
-          onSelectSection={vi.fn()}
-          activeTheme="default"
-          onSelectTheme={vi.fn()}
-          activeBackground="theme-default"
-          onSelectBackground={vi.fn()}
-          account={{ ...account, avatar_image: "data:image/png;base64,YXZhdGFy" }}
-          onAccountChange={vi.fn()}
-          onOpenInstall={vi.fn()}
-        />,
-      );
-    });
+  it("dims the color palette when a custom avatar is active", async () => {
+    await renderAccount(vi.fn(), { ...account, avatar_image: "data:image/png;base64,YXZhdGFy" });
 
     expect(host.textContent).toContain("Custom avatar active. Remove to use color.");
     expect(host.textContent).toContain("Remove custom avatar");
