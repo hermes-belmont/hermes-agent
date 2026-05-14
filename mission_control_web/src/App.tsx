@@ -1368,7 +1368,17 @@ export default function App() {
                       className="min-h-[92px] w-full rounded-[22px] border border-border bg-background/55 px-4 py-3 text-sm leading-6 text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-foreground/30 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                     <div className="flex items-center justify-between gap-3">
-                      <div className="text-xs leading-5 text-muted-foreground">{composerHint}</div>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() => setShowAgentRoutePicker((value) => !value)}
+                          className="inline-flex shrink-0 items-center gap-2 rounded-full border border-border bg-background/45 px-3 py-1.5 text-xs text-foreground/80 transition hover:border-foreground/25 hover:bg-foreground/6"
+                        >
+                          <TerminalSquare className="h-3.5 w-3.5" />
+                          {hermesDirectHint ? "Route: Hermes (direct)" : "Choose route"}
+                        </button>
+                        <div className="text-xs leading-5 text-muted-foreground">{composerHint}</div>
+                      </div>
                       <Button className="border border-[color-mix(in_srgb,var(--warm-glow)_45%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)] text-[var(--warm-glow)] hover:bg-[color-mix(in_srgb,var(--warm-glow)_18%,transparent)]" onClick={() => void handleSendMessage()} disabled={sendingMessage || !selectedConversation || !composerText.trim()}>
                         {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                         {sendingMessage ? "Sending..." : "Send"}
