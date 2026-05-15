@@ -572,7 +572,7 @@ export default function App() {
   const firstTimeUser = (bootstrap?.conversations.length ?? 0) === 0;
   const hermesDirectAgent = useMemo(() => {
     const agents = bootstrap?.agents ?? [];
-    return agents.find((agent) => /hermes/i.test(agent.name)) ?? agents[0] ?? null;
+    return agents.find((agent) => /hermes|app.developer/i.test(agent.name)) ?? null;
   }, [bootstrap]);
   const conversationsForSelectedAgent = useMemo(
     () => bootstrap?.conversations.filter((conversation) => conversation.agent_id === selectedAgentId) ?? [],
