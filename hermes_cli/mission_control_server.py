@@ -59,6 +59,7 @@ from hermes_state import SessionDB
 from run_agent import AIAgent
 from toolsets import get_all_toolsets
 from agent.usage_pricing import resolve_billing_route
+from agent.display import KawaiiSpinner
 
 MISSION_CONTROL_DIST = (
     Path(os.environ["HERMES_MISSION_CONTROL_DIST"])
@@ -3109,6 +3110,14 @@ async def restore_agent_endpoint(agent_id: str):
 @app.post("/api/agents/purge-now")
 async def purge_agents_now_endpoint():
     return entities_service.purge_due_agents(_load_state())
+
+
+@app.get("/api/mission-control/loading-phrases")
+async def loading_phrases() -> dict[str, list[str]]:
+    return {
+        "faces": KawaiiSpinner.get_thinking_faces(),
+        "verbs": KawaiiSpinner.get_thinking_verbs(),
+    }
 
 
 @app.get("/api/mission-control/bootstrap", response_model=BootstrapResponse)

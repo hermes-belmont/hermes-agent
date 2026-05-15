@@ -187,7 +187,7 @@ Mission Control has two local checkouts on David's machine: the active worktree 
 scripts/save_previews.sh
 ```
 
-The script mirrors PNG previews to `/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview/`, verifies the PNG counts and filenames match, and fails loudly on mismatch. This keeps committed validation assets and David's view path in sync.
+The script mirrors PNG previews to `/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview/` and maintains a manifest at `/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview/.preview_manifest.txt`. New worktree screenshots are copied into David's view path and added to the manifest. If David deletes a manifest-listed PNG from his view path, the next mirror run treats that as intentional, deletes the corresponding worktree PNG, and removes it from the manifest so the deletion sticks in future commits. The script prints `Mirrored: X new, Y unchanged, Z deletions propagated.` instead of failing on count differences.
 
 ## Community
 

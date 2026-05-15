@@ -2,50 +2,71 @@
 set -euo pipefail
 
 # Mirror Mission Control Playwright preview screenshots from the active checkout
-# to David's Finder-visible checkout. Run this after every screenshot capture.
+# to David's Finder-visible checkout while honoring deletions David makes there.
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 SOURCE_DIR="${1:-$REPO_ROOT/mission_control_web/public/preview}"
 DAVID_PREVIEW_DIR="${DAVID_PREVIEW_DIR:-/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview}"
+MANIFEST="$DAVID_PREVIEW_DIR/.preview_manifest.txt"
 
 if [[ ! -d "$SOURCE_DIR" ]]; then
   echo "ERROR: source preview directory does not exist: $SOURCE_DIR" >&2
   exit 1
 fi
 
-shopt -s nullglob
-source_pngs=("$SOURCE_DIR"/*.png)
-if (( ${#source_pngs[@]} == 0 )); then
-  echo "ERROR: no PNG previews found in source directory: $SOURCE_DIR" >&2
-  exit 1
-fi
-
 mkdir -p "$DAVID_PREVIEW_DIR"
-rm -f "$DAVID_PREVIEW_DIR"/*.png
-cp "$SOURCE_DIR"/*.png "$DAVID_PREVIEW_DIR"/
+shopt -s nullglob
 
-source_count=$(find "$SOURCE_DIR" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')
-david_count=$(find "$DAVID_PREVIEW_DIR" -maxdepth 1 -type f -name '*.png' | wc -l | tr -d ' ')
+manifest_tmp="$(mktemp)"
+trap 'rm -f "$manifest_tmp"' EXIT
 
-if [[ "$source_count" != "$david_count" ]]; then
-  echo "ERROR: preview PNG count mismatch: source=$source_count david=$david_count" >&2
-  exit 1
+if [[ ! -f "$MANIFEST" ]]; then
+  # First run: treat the current worktree preview set as already known so existing
+  # files are not reported as new captures. Also hydrate David's view path if any
+  # of those known files are missing there.
+  (cd "$SOURCE_DIR" && find . -maxdepth 1 -type f -name '*.png' -exec basename {} \; | sort) > "$MANIFEST"
+  while IFS= read -r filename; do
+    [[ -z "$filename" ]] && continue
+    if [[ ! -f "$DAVID_PREVIEW_DIR/$filename" ]]; then
+      cp "$SOURCE_DIR/$filename" "$DAVID_PREVIEW_DIR/$filename"
+    fi
+  done < "$MANIFEST"
+  echo "Initialized preview manifest: $MANIFEST"
 fi
 
-source_listing=$(mktemp)
-david_listing=$(mktemp)
-trap 'rm -f "$source_listing" "$david_listing"' EXIT
+# Normalize manifest in case it was edited manually.
+sort -u "$MANIFEST" -o "$MANIFEST"
 
-(cd "$SOURCE_DIR" && find . -maxdepth 1 -type f -name '*.png' -print | sort) > "$source_listing"
-(cd "$DAVID_PREVIEW_DIR" && find . -maxdepth 1 -type f -name '*.png' -print | sort) > "$david_listing"
+mirrored=0
+unchanged=0
+deletions=0
+> "$manifest_tmp"
 
-if ! diff -u "$source_listing" "$david_listing" >/dev/null; then
-  echo "ERROR: preview PNG filename mismatch between source and David preview directories" >&2
-  diff -u "$source_listing" "$david_listing" >&2 || true
-  exit 1
-fi
+# Evaluate all current worktree PNGs. A file listed in the manifest but missing
+# from David's folder is treated as an intentional David-side deletion and is
+# removed from the worktree so the deletion sticks in future commits.
+for source_path in "$SOURCE_DIR"/*.png; do
+  [[ -e "$source_path" ]] || continue
+  filename="$(basename "$source_path")"
+  if grep -Fxq "$filename" "$MANIFEST"; then
+    if [[ -f "$DAVID_PREVIEW_DIR/$filename" ]]; then
+      printf '%s\n' "$filename" >> "$manifest_tmp"
+      unchanged=$((unchanged + 1))
+    else
+      rm -f "$source_path"
+      deletions=$((deletions + 1))
+    fi
+  else
+    cp "$source_path" "$DAVID_PREVIEW_DIR/$filename"
+    printf '%s\n' "$filename" >> "$manifest_tmp"
+    mirrored=$((mirrored + 1))
+  fi
+done
 
-echo "Preview screenshots mirrored successfully."
-echo "Source: $SOURCE_DIR ($source_count PNGs)"
-echo "David:  $DAVID_PREVIEW_DIR ($david_count PNGs)"
+sort -u "$manifest_tmp" -o "$MANIFEST"
+
+echo "Mirrored: $mirrored new, $unchanged unchanged, $deletions deletions propagated."
+echo "Manifest: $MANIFEST"
+echo "Source: $SOURCE_DIR"
+echo "David:  $DAVID_PREVIEW_DIR"

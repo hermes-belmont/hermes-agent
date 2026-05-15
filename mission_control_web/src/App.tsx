@@ -6,6 +6,7 @@ import {
   Bot,
   BrainCircuit,
   Check,
+  Copy,
   ChevronDown,
   Folder,
   Lock,
@@ -592,28 +593,100 @@ function Popover({ children, className = "" }: { children: ReactNode; className?
   );
 }
 
-function ChatMessageRow({ message }: { message: ConversationMessage }) {
+type LoadingPhrase = { face: string; verb: string };
+
+function formatLoadingElapsed(startedAt: number): string {
+  const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m`;
+}
+
+function renderToolText(message: ConversationMessage): string {
+  return (message.tool_events ?? []).map((tool) => `${tool.name} · ${tool.status}`).join("\n");
+}
+
+function ChatMessageRow({ message, loadingPhrases }: { message: ConversationMessage; loadingPhrases: LoadingPhrase[] }) {
   const isUser = message.role === "user";
-  const isThinking = message.client_status === "thinking" || message.client_status === "streaming";
+  const isWaiting = message.client_status === "thinking" && !message.content;
+  const copyText = [message.content, renderToolText(message)].filter(Boolean).join("\n\n");
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">("idle");
+  const [phraseIndex, setPhraseIndex] = useState(0);
+  const [elapsed, setElapsed] = useState("0s");
+  const loadingStartedRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (!isWaiting) {
+      loadingStartedRef.current = Date.now();
+      setElapsed("0s");
+      setPhraseIndex(0);
+      return undefined;
+    }
+    loadingStartedRef.current = Date.now();
+    const tick = () => setElapsed(formatLoadingElapsed(loadingStartedRef.current));
+    tick();
+    const elapsedTimer = window.setInterval(tick, 1000);
+    const phraseTimer = window.setInterval(() => {
+      setPhraseIndex((current) => (loadingPhrases.length ? (current + 1) % loadingPhrases.length : 0));
+    }, 5000);
+    return () => {
+      window.clearInterval(elapsedTimer);
+      window.clearInterval(phraseTimer);
+    };
+  }, [isWaiting, loadingPhrases.length]);
+
+  useEffect(() => {
+    if (copyState === "idle") return undefined;
+    const timer = window.setTimeout(() => setCopyState("idle"), 1500);
+    return () => window.clearTimeout(timer);
+  }, [copyState]);
+
+  const activePhrase = loadingPhrases[phraseIndex] ?? { face: "(◉_◉)", verb: "musing" };
+  const handleCopy = async () => {
+    if (!copyText) return;
+    try {
+      await navigator.clipboard.writeText(copyText);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+  };
+
   return (
     <div className={cn("flex w-full", isUser ? "justify-end" : "justify-start")}>
       <div className={cn(
-        "max-w-[760px] rounded-[26px] border px-4 py-3 text-sm leading-6 shadow-[0_18px_50px_rgba(0,0,0,0.20)]",
+        "group/message relative max-w-[760px] rounded-[26px] border px-4 py-3 text-sm leading-6 shadow-[0_18px_50px_rgba(0,0,0,0.20)]",
         isUser
           ? "border-[color-mix(in_srgb,var(--warm-glow)_28%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_11%,transparent)] text-foreground"
           : "border-foreground/10 bg-card/62 text-foreground/92",
-      )}>
+      )} data-testid={isUser ? "chat-message-user" : "chat-message-assistant"}>
+        {copyText && (
+          <div className="absolute -right-2 -top-2 z-10 flex items-center gap-2 opacity-0 transition group-hover/message:opacity-100 group-focus-within/message:opacity-100">
+            {copyState === "copied" && <span className="rounded-full border border-emerald-300/20 bg-background/90 px-2 py-1 text-[10px] text-emerald-200 shadow-lg">Copied</span>}
+            {copyState === "failed" && <span className="rounded-full border border-red-300/20 bg-background/90 px-2 py-1 text-[10px] text-red-200 shadow-lg">Copy failed</span>}
+            <button
+              type="button"
+              aria-label="Copy message"
+              onClick={handleCopy}
+              className="flex h-8 w-8 items-center justify-center rounded-full border border-foreground/10 bg-background/90 text-muted-foreground shadow-lg transition hover:text-foreground"
+            >
+              {copyState === "copied" ? <Check className="h-3.5 w-3.5 text-emerald-200" /> : <Copy className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+        )}
         <div className="mb-2 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em] text-muted-foreground">
           {isUser ? "You" : "Hermes"}
-          {isThinking && <span className="inline-flex items-center gap-1 text-[var(--warm-glow)]"><Loader2 className="h-3 w-3 animate-spin" /> thinking</span>}
         </div>
         {message.client_status === "error" ? (
           <div className="text-red-200">{message.error_message || "The assistant response failed."}</div>
         ) : message.content ? (
           <MarkdownRenderer content={message.content} />
-        ) : (
-          <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Waiting for response…</div>
-        )}
+        ) : isWaiting ? (
+          <div className="inline-flex items-center gap-2 font-mono text-[var(--warm-glow)]" data-testid="chat-loading-phrase">
+            <span>{activePhrase.face}</span>
+            <span>{activePhrase.verb}...</span>
+            <span className="text-muted-foreground">· {elapsed}</span>
+          </div>
+        ) : null}
         {message.tool_events && message.tool_events.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {message.tool_events.map((tool) => (
@@ -682,6 +755,21 @@ function HermesChatView({
   const displayProfile = activeAgent?.name ?? "default";
   const projectName = activeProject?.name ?? "new";
   const profileModel = modelForAgent(activeAgent, activeModel);
+  const [loadingPhrases, setLoadingPhrases] = useState<LoadingPhrase[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getLoadingPhrases()
+      .then(({ faces, verbs }) => {
+        if (cancelled) return;
+        const phrases = verbs.flatMap((verb, verbIndex) => faces.map((face, faceIndex) => ({ face, verb, order: (verbIndex * 7 + faceIndex * 3) % 997 })))
+          .sort((a, b) => a.order - b.order)
+          .map(({ face, verb }) => ({ face, verb }));
+        setLoadingPhrases(phrases);
+      })
+      .catch(() => setLoadingPhrases([]));
+    return () => { cancelled = true; };
+  }, []);
 
   return (
     <div className="relative flex min-h-[calc(100vh-2rem)] flex-1 flex-col overflow-hidden rounded-[32px] border border-foreground/6 bg-[radial-gradient(circle_at_50%_32%,color-mix(in_srgb,var(--warm-glow)_10%,transparent),transparent_27%),linear-gradient(180deg,rgba(0,0,0,0.08),rgba(0,0,0,0.18))] px-5 py-4 sm:px-7">
@@ -707,7 +795,7 @@ function HermesChatView({
 
         {hasThread && (
           <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-1 pb-8 pt-8">
-            {messages.map((message) => <ChatMessageRow key={message.id} message={message} />)}
+            {messages.map((message) => <ChatMessageRow key={message.id} message={message} loadingPhrases={loadingPhrases} />)}
           </div>
         )}
       </div>

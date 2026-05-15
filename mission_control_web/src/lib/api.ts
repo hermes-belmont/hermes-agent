@@ -68,6 +68,7 @@ function filenameFromDisposition(disposition: string | null): string {
 
 export const api = {
   getBootstrap: () => fetchJSON<BootstrapResponse>("/api/mission-control/bootstrap"),
+  getLoadingPhrases: () => fetchJSON<{ faces: string[]; verbs: string[] }>("/api/mission-control/loading-phrases"),
   getAccount: () => fetchJSON<AccountRecord>("/api/account"),
   getAgentProfiles: () => fetchJSON<{ profiles: HermesProfile[]; error?: string }>("/api/agent-profiles"),
   updateAccount: (patch: Partial<Omit<AccountRecord, "preferences">> & { preferences?: Partial<AccountRecord["preferences"]> }) => fetchJSON<AccountRecord>("/api/account", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }),
