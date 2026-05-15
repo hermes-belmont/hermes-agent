@@ -179,6 +179,16 @@ scripts/run_tests.sh
 
 ---
 
+## Mission Control preview screenshots
+
+Mission Control has two local checkouts on David's machine: the active worktree and David's Finder-visible checkout. Every Playwright screenshot pass must save previews to the worktree-relative `mission_control_web/public/preview/` path, then run:
+
+```bash
+scripts/save_previews.sh
+```
+
+The script mirrors PNG previews to `/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview/`, verifies the PNG counts and filenames match, and fails loudly on mismatch. This keeps committed validation assets and David's view path in sync.
+
 ## Community
 
 - 💬 [Discord](https://discord.gg/NousResearch)
