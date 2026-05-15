@@ -7,7 +7,6 @@ import {
   BrainCircuit,
   Check,
   ChevronDown,
-  FilePlus2,
   Folder,
   Lock,
   Loader2,
@@ -15,7 +14,6 @@ import {
   Paperclip,
   Pencil,
   Plus,
-  PlusCircle,
   Search,
   SlidersHorizontal,
   Star,
@@ -603,11 +601,6 @@ function HermesChatView({
             <h1 className="mt-3 font-serif text-4xl text-[color-mix(in_srgb,var(--foreground)_88%,#f4dfbc)] sm:text-5xl">Begin a session</h1>
             <div className="mt-3 text-sm text-[var(--warm-glow)]">{displayProfile} · {profileModel}</div>
             <div className="mt-5 text-sm text-muted-foreground">Agent chat · live tools · memory · full observability</div>
-            <div className="mt-7 grid w-full max-w-xl gap-2 sm:grid-cols-3">
-              <button type="button" onClick={() => onComposerChange("Analyze this workspace and identify the highest-leverage next actions.")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><span className="text-[var(--warm-glow)]">&#123; … &#125;</span> Analyze workspace</button>
-              <button type="button" onClick={() => onComposerChange("Remember this preference: ")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><PlusCircle className="mr-1 inline h-3.5 w-3.5 text-[var(--warm-glow)]" /> Save a preference</button>
-              <button type="button" onClick={() => onComposerChange("Create a file named ")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><FilePlus2 className="mr-1 inline h-3.5 w-3.5 text-[var(--warm-glow)]" /> Create a file</button>
-            </div>
           </div>
         )}
 
