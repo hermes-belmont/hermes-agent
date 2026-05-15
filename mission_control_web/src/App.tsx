@@ -18,7 +18,6 @@ import {
   PlusCircle,
   Search,
   SlidersHorizontal,
-  Sparkles,
   Star,
   Ellipsis,
   Trash2,
@@ -26,7 +25,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api";
 import type { AccountRecord, AgentRecord, BootstrapResponse, ConversationMessage, ConversationRecord } from "@/lib/types";
-import { cn, formatCurrency, formatNumber } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { mockBootstrap } from "@/lib/mock";
@@ -592,13 +591,6 @@ function HermesChatView({
           <Folder className="h-4 w-4" />
           <span className="text-foreground/78">{projectName}</span>
         </div>
-        <div className="hidden items-center gap-2 rounded-full border border-foreground/8 bg-background/28 px-3 py-1 text-[10px] uppercase tracking-[0.16em] text-muted-foreground sm:flex">
-          <span>Session</span>
-          <span>|</span>
-          <span>In {formatNumber(activeAgent?.usage_summary.input_tokens ?? 0)}</span>
-          <span>Out {formatNumber(activeAgent?.usage_summary.output_tokens ?? 0)}</span>
-          <span>Cost {formatCurrency(activeAgent?.usage_summary.actual_cost ?? activeAgent?.usage_summary.estimated_cost ?? 0)}</span>
-        </div>
       </div>
 
       <div className="flex flex-1 flex-col pb-[150px]">
@@ -615,14 +607,6 @@ function HermesChatView({
               <button type="button" onClick={() => onComposerChange("Analyze this workspace and identify the highest-leverage next actions.")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><span className="text-[var(--warm-glow)]">&#123; … &#125;</span> Analyze workspace</button>
               <button type="button" onClick={() => onComposerChange("Remember this preference: ")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><PlusCircle className="mr-1 inline h-3.5 w-3.5 text-[var(--warm-glow)]" /> Save a preference</button>
               <button type="button" onClick={() => onComposerChange("Create a file named ")} className="rounded-xl border border-foreground/10 bg-background/32 px-4 py-3 text-xs text-foreground/70 transition hover:border-[var(--warm-glow)]/40 hover:text-foreground"><FilePlus2 className="mr-1 inline h-3.5 w-3.5 text-[var(--warm-glow)]" /> Create a file</button>
-            </div>
-            <div className="mt-10 opacity-90">
-              <div className="mx-auto flex h-[92px] w-[92px] items-center justify-center overflow-hidden rounded-[24px] bg-foreground/90 text-background-base shadow-[0_0_70px_color-mix(in_srgb,var(--warm-glow)_14%,transparent)]">
-                {account.avatar_image ? <img src={account.avatar_image} alt="" className="h-full w-full object-cover" /> : <Sparkles className="h-11 w-11" />}
-              </div>
-              <div className="mt-4 font-expanded text-4xl uppercase tracking-[-0.06em] text-[var(--warm-glow)] drop-shadow-[0_8px_0_rgba(0,0,0,0.55)]">Hermes-Agent</div>
-              <div className="mt-1 text-sm text-muted-foreground">Workspace</div>
-              <div className="mx-auto mt-7 h-[3px] w-[140px] rounded-full bg-[var(--warm-glow)]" />
             </div>
           </div>
         )}
