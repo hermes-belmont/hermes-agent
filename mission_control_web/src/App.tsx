@@ -56,6 +56,7 @@ type NoticeTone = "info" | "success" | "warning" | "error";
 type ReasoningLevel = "Low" | "Medium" | "High";
 
 type PendingProjectDelete = ProjectRecord | null;
+type PendingProjectEdit = ProjectRecord | null;
 type PendingConversationDelete = ConversationRecord | null;
 type PendingChangeProject = ConversationRecord | null;
 
@@ -178,11 +179,68 @@ function ProjectDeleteModal({ project, onCancel, onConfirm }: { project: Pending
       <div className="w-full max-w-md rounded-[28px] border border-red-400/25 bg-background/95 p-5 shadow-2xl">
         <div id="delete-project-title" className="font-expanded text-sm uppercase tracking-[0.18em] text-red-200">Delete project?</div>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          This will permanently delete <span className="text-foreground">{project.name}</span> from Mission Control projects. This cannot be undone.
+          This will permanently delete '{project.name}' and cannot be undone. Conversations tagged to this project will be detached, not deleted.
         </p>
         <div className="mt-5 flex justify-end gap-2">
           <Button variant="outline" onClick={onCancel}>Cancel</Button>
           <Button className="border border-red-400/35 bg-red-500/15 text-red-100 hover:bg-red-500/25" onClick={onConfirm}>Delete project</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ProjectEditModal({ project, onCancel, onSave }: { project: PendingProjectEdit; onCancel: () => void; onSave: (project: ProjectRecord, values: { name: string; description: string }) => void }) {
+  const [name, setName] = useState(project?.name ?? "");
+  const [description, setDescription] = useState(project?.description ?? "");
+
+  useEffect(() => {
+    setName(project?.name ?? "");
+    setDescription(project?.description ?? "");
+  }, [project]);
+
+  useEffect(() => {
+    if (!project) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onCancel();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onCancel, project]);
+
+  if (!project) return null;
+  const trimmedName = name.trim();
+  const saveDisabled = trimmedName.length === 0;
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="edit-project-title">
+      <div className="w-full max-w-lg rounded-[28px] border border-foreground/12 bg-background/95 p-5 shadow-2xl">
+        <div id="edit-project-title" className="font-expanded text-sm uppercase tracking-[0.18em] text-foreground">Edit project</div>
+        <div className="mt-5 space-y-4">
+          <label className="block text-sm text-foreground/84">
+            <span className="mb-2 block text-xs uppercase tracking-[0.14em] text-muted-foreground">Name</span>
+            <input
+              autoFocus
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              onKeyDown={(event) => { if (event.key === "Enter") event.preventDefault(); }}
+              className="h-11 w-full rounded-2xl border border-foreground/10 bg-card/50 px-3 text-sm text-foreground outline-none focus:border-[var(--warm-glow)]/45"
+            />
+            {saveDisabled && <span className="mt-2 block text-xs text-red-300">Name cannot be empty</span>}
+          </label>
+          <label className="block text-sm text-foreground/84">
+            <span className="mb-2 block text-xs uppercase tracking-[0.14em] text-muted-foreground">Description</span>
+            <textarea
+              value={description}
+              onChange={(event) => setDescription(event.target.value)}
+              placeholder="Add a description for this project"
+              className="min-h-[120px] w-full resize-none rounded-2xl border border-foreground/10 bg-card/50 px-3 py-3 text-sm leading-6 text-foreground outline-none placeholder:text-muted-foreground focus:border-[var(--warm-glow)]/45"
+            />
+          </label>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button disabled={saveDisabled} onClick={() => onSave(project, { name: trimmedName, description: description.trim() })}>Save</Button>
         </div>
       </div>
     </div>
@@ -231,14 +289,31 @@ function ChangeProjectModal({ conversation, projects, onCancel, onSelect }: { co
   );
 }
 
-function ProjectsView({ projects, activeProjectId, onSelectProject, onCreateProject, onToggleProjectStar, onRestoreProject }: { projects: ProjectRecord[]; activeProjectId: string | null; onSelectProject: (project: ProjectRecord) => void; onCreateProject: () => void; onToggleProjectStar: (project: ProjectRecord) => void; onRestoreProject: (project: ProjectRecord) => void }) {
+function ProjectsView({ projects, activeProjectId, onSelectProject, onCreateProject, onToggleProjectStar, onEditProject, onArchiveProject, onDeleteProject, onRestoreProject }: {
+  projects: ProjectRecord[];
+  activeProjectId: string | null;
+  onSelectProject: (project: ProjectRecord) => void;
+  onCreateProject: () => void;
+  onToggleProjectStar: (project: ProjectRecord) => void;
+  onEditProject: (project: ProjectRecord) => void;
+  onArchiveProject: (project: ProjectRecord) => void;
+  onDeleteProject: (project: ProjectRecord) => void;
+  onRestoreProject: (project: ProjectRecord) => void;
+}) {
   const [query, setQuery] = useState("");
   const [showArchive, setShowArchive] = useState(false);
+  const [openProjectMenuId, setOpenProjectMenuId] = useState<string | null>(null);
   const filtered = projects
     .filter((project) => !project.archived)
     .filter((project) => `${project.name} ${project.description ?? ""}`.toLowerCase().includes(query.toLowerCase()))
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   const archived = projects.filter((project) => project.archived).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+
+  const runProjectAction = (project: ProjectRecord, action: (project: ProjectRecord) => void) => {
+    setOpenProjectMenuId(null);
+    action(project);
+  };
+
   return (
     <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col px-2 py-3 sm:px-4">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -255,26 +330,53 @@ function ProjectsView({ projects, activeProjectId, onSelectProject, onCreateProj
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search projects..." className="h-11 w-full rounded-2xl border border-foreground/10 bg-card/50 pl-10 pr-3 text-sm text-foreground outline-none placeholder:text-muted-foreground" />
       </div>
       <div className="mt-6 grid grid-cols-1 gap-4 lg:grid-cols-2">
-        {filtered.map((project) => (
-          <button key={project.id} type="button" onClick={() => onSelectProject(project)} className={cn("group flex min-h-[150px] flex-col rounded-[26px] border bg-card/42 p-5 text-left shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition hover:-translate-y-0.5 hover:bg-card/58", activeProjectId === project.id ? "border-[color-mix(in_srgb,var(--warm-glow)_36%,transparent)]" : "border-foreground/10")}>
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0 text-base font-semibold text-foreground">{project.name}</div>
-              <span
-                role="button"
-                tabIndex={0}
-                title={project.starred ? "Unstar" : "Star"}
-                aria-label={project.starred ? "Unstar project" : "Star project"}
-                onClick={(event) => { event.stopPropagation(); onToggleProjectStar(project); }}
-                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); event.stopPropagation(); onToggleProjectStar(project); } }}
-                className={cn("inline-flex h-8 w-8 items-center justify-center rounded-full border transition", project.starred ? "border-[var(--warm-glow)] bg-[color-mix(in_srgb,var(--warm-glow)_12%,transparent)] text-[var(--warm-glow)]" : "border-foreground/10 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100")}
-              >
-                <Star className={cn("h-4 w-4", project.starred && "fill-current")} />
-              </span>
+        {filtered.map((project) => {
+          const menuOpen = openProjectMenuId === project.id;
+          return (
+            <div
+              key={project.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => onSelectProject(project)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  onSelectProject(project);
+                }
+              }}
+              className={cn("group relative flex min-h-[150px] cursor-pointer flex-col rounded-[26px] border bg-card/42 p-5 text-left shadow-[0_18px_60px_rgba(0,0,0,0.18)] transition hover:-translate-y-0.5 hover:bg-card/58 focus:outline-none focus:ring-1 focus:ring-[var(--warm-glow)]/45", activeProjectId === project.id ? "border-[color-mix(in_srgb,var(--warm-glow)_36%,transparent)]" : "border-foreground/10")}
+              data-testid="project-card"
+              data-project-id={project.id}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 text-base font-semibold text-foreground">{project.name}</div>
+                <div className="relative z-20 shrink-0" onClick={(event) => event.stopPropagation()}>
+                  <button
+                    type="button"
+                    aria-label={`Project actions for ${project.name}`}
+                    aria-expanded={menuOpen}
+                    onClick={() => setOpenProjectMenuId((current) => current === project.id ? null : project.id)}
+                    className={cn("flex h-8 w-8 items-center justify-center rounded-full border border-foreground/10 bg-background/45 text-muted-foreground transition hover:bg-foreground/8 hover:text-foreground focus:opacity-100 focus:outline-none sm:opacity-0 sm:group-hover:opacity-100", menuOpen && "opacity-100 sm:opacity-100")}
+                  >
+                    <Ellipsis className="h-4 w-4" />
+                  </button>
+                  {menuOpen && (
+                    <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-xl border border-foreground/10 bg-background/95 p-1 shadow-2xl backdrop-blur-xl" data-testid="projects-card-action-menu">
+                      <button type="button" data-project-action="star" onClick={() => runProjectAction(project, onToggleProjectStar)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Star className={cn("h-3.5 w-3.5", project.starred && "fill-current text-[var(--warm-glow)]")} />{project.starred ? "Unstar" : "Star"}</button>
+                      <button type="button" data-project-action="edit" onClick={() => runProjectAction(project, onEditProject)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Pencil className="h-3.5 w-3.5" />Edit details</button>
+                      <button type="button" data-project-action="archive" onClick={() => runProjectAction(project, onArchiveProject)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Archive className="h-3.5 w-3.5" />Archive</button>
+                      <div className="my-1 border-t border-foreground/10" />
+                      <button type="button" data-project-action="delete" onClick={() => runProjectAction(project, onDeleteProject)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {project.starred && <Star className="absolute bottom-5 right-5 h-4 w-4 fill-current text-[var(--warm-glow)]" />}
+              <p className="mt-3 overflow-hidden pr-7 text-sm leading-6 text-muted-foreground" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{project.description || "No description yet."}</p>
+              <div className="mt-auto pt-5 text-xs text-muted-foreground">Updated {formatRelativeTime(project.updatedAt)}</div>
             </div>
-            <p className="mt-3 overflow-hidden text-sm leading-6 text-muted-foreground" style={{ display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>{project.description || "No description yet."}</p>
-            <div className="mt-auto pt-5 text-xs text-muted-foreground">Updated {formatRelativeTime(project.updatedAt)}</div>
-          </button>
-        ))}
+          );
+        })}
       </div>
       <div className="mt-8 rounded-[24px] border border-foreground/10 bg-card/32 p-4">
         <button type="button" onClick={() => setShowArchive((value) => !value)} className="flex w-full items-center justify-between text-left font-expanded text-xs uppercase tracking-[0.16em] text-foreground/75">
@@ -294,7 +396,6 @@ function ProjectsView({ projects, activeProjectId, onSelectProject, onCreateProj
     </section>
   );
 }
-
 
 function ProjectConversationRow({ conversation, editing, onSelect, onToggleStar, onStartRename, onCommitRename, onCancelRename, onOpenChangeProject, onRemoveFromProject, onDelete }: {
   conversation: ConversationRecord;
@@ -747,6 +848,7 @@ export default function App() {
   const [activeProjectId, setActiveProjectId] = useState<string | null>(() => typeof window === "undefined" ? seedProjects[0]?.id ?? null : window.localStorage.getItem(ACTIVE_PROJECT_STORAGE_KEY) ?? seedProjects[0]?.id ?? null);
   const [projectDetailId, setProjectDetailId] = useState<string | null>(() => typeof window === "undefined" ? null : projectIdFromHash(window.location.hash));
   const [pendingDeleteProject, setPendingDeleteProject] = useState<PendingProjectDelete>(null);
+  const [editingProject, setEditingProject] = useState<PendingProjectEdit>(null);
   const [pendingDeleteConversation, setPendingDeleteConversation] = useState<PendingConversationDelete>(null);
   const [pendingChangeProject, setPendingChangeProject] = useState<PendingChangeProject>(null);
   const [editingConversationId, setEditingConversationId] = useState<string | null>(null);
@@ -914,9 +1016,12 @@ export default function App() {
   };
 
   const handleEditProject = (project: ProjectRecord) => {
-    const name = window.prompt("Project name", project.name)?.trim();
-    if (!name) return;
-    upsertProjects((current) => current.map((item) => item.id === project.id ? { ...item, name, updatedAt: nowIso() } : item));
+    setEditingProject(project);
+  };
+
+  const handleSaveProjectDetails = (project: ProjectRecord, values: { name: string; description: string }) => {
+    upsertProjects((current) => current.map((item) => item.id === project.id ? { ...item, name: values.name, description: values.description, updatedAt: nowIso() } : item));
+    setEditingProject(null);
   };
 
   const handleArchiveProject = (project: ProjectRecord) => {
@@ -931,12 +1036,17 @@ export default function App() {
 
   const handleDeleteProject = (project: ProjectRecord) => setPendingDeleteProject(project);
 
-  const confirmDeleteProject = () => {
+  const confirmDeleteProject = async () => {
     if (!pendingDeleteProject) return;
     const deletingId = pendingDeleteProject.id;
     upsertProjects((current) => current.filter((item) => item.id !== deletingId));
+    await Promise.all((bootstrap?.conversations ?? [])
+      .filter((conversation) => conversationProjectId(conversation) === deletingId)
+      .map((conversation) => api.updateConversation(conversation.id, { project_id: null })));
     if (activeProjectId === deletingId) setActiveProjectId(projects.find((item) => item.id !== deletingId && !item.archived)?.id ?? null);
+    if (projectDetailId === deletingId) handleBackToProjects();
     setPendingDeleteProject(null);
+    await refreshAfterConversationUpdate();
   };
 
   const handleCreateProject = () => {
@@ -1221,6 +1331,9 @@ export default function App() {
                 onSelectProject={handleSelectProject}
                 onCreateProject={handleCreateProject}
                 onToggleProjectStar={handleToggleProjectStar}
+                onEditProject={handleEditProject}
+                onArchiveProject={handleArchiveProject}
+                onDeleteProject={handleDeleteProject}
                 onRestoreProject={handleRestoreProject}
               />
             ) : activeView === "tracking" ? (
@@ -1289,7 +1402,8 @@ export default function App() {
         )}
       </main>
 
-      <ProjectDeleteModal project={pendingDeleteProject} onCancel={() => setPendingDeleteProject(null)} onConfirm={confirmDeleteProject} />
+      <ProjectDeleteModal project={pendingDeleteProject} onCancel={() => setPendingDeleteProject(null)} onConfirm={() => void confirmDeleteProject()} />
+      <ProjectEditModal project={editingProject} onCancel={() => setEditingProject(null)} onSave={handleSaveProjectDetails} />
       <ChangeProjectModal conversation={pendingChangeProject} projects={projects} onCancel={() => setPendingChangeProject(null)} onSelect={(projectId) => void handleChangeConversationProject(projectId)} />
       <DeleteConversationModal conversation={pendingDeleteConversation} onCancel={() => setPendingDeleteConversation(null)} onConfirm={() => void confirmDeleteConversation()} />
       <InstallModal open={showInstallModal} onClose={() => setShowInstallModal(false)} />
