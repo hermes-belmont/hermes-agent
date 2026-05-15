@@ -1061,14 +1061,12 @@ export default function App() {
       sendAgent = routeAgent;
       setShowAgentRoutePicker(false);
       setHermesDirectHint(routeAgent.id === hermesDirectAgent?.id);
-      setSelectedAgentId(routeAgent.id);
       setActiveView("new-chat");
       setMutationError("");
       try {
         const existingConversation = (conversationsByAgent.get(routeAgent.id) ?? [])[0];
         if (existingConversation) {
           sendConversationId = existingConversation.id;
-          setSelectedConversationId(existingConversation.id);
         } else {
           setCreatingConversation(true);
           const conversation = await createConversationForAgent(routeAgent);
@@ -1161,6 +1159,8 @@ export default function App() {
         setChatStatus("error");
       }
       await loadBootstrap(sendAgent.id, sendConversationId);
+      setSelectedAgentId(sendAgent.id);
+      setSelectedConversationId(sendConversationId);
       setPendingRouteAgentId(null);
       if (finalContent) setChatStatus("idle");
     } catch (err) {
@@ -1172,6 +1172,8 @@ export default function App() {
       )));
       setChatError(message);
       setChatStatus("error");
+      setSelectedAgentId(sendAgent.id);
+      setSelectedConversationId(sendConversationId);
       await loadBootstrap(sendAgent.id, sendConversationId);
     } finally {
       setSendingMessage(false);
