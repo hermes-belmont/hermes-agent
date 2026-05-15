@@ -170,6 +170,9 @@ export interface ConversationRecord {
   title: string;
   session_id?: string | null;
   pinned: boolean;
+  starred?: boolean;
+  project_id?: string | null;
+  projectId?: string | null;
   created_at: string;
   updated_at: string;
   last_message_at?: string | null;

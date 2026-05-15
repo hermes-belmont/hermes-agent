@@ -1,17 +1,28 @@
-import { Activity, BellRing, Download, Inbox, ListTodo, Menu, MessageSquarePlus, Settings, Settings2, Sun, Users, Wrench } from "lucide-react";
+import { Activity, Archive, BellRing, Download, Ellipsis, Folder, Inbox, ListTodo, Menu, MessageSquarePlus, Pencil, RotateCcw, Settings, Settings2, Star, Sun, Trash2, Users, Wrench } from "lucide-react";
 import type { SettingsSection } from "@/components/SettingsView";
 import { navigateToSettingsSection } from "@/lib/hash-routing";
-import type { AccountRecord } from "@/lib/types";
+import type { AccountRecord, ConversationRecord } from "@/lib/types";
 import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 import { cn } from "@/lib/utils";
 
-export type ActiveView = "new-chat" | "briefings" | "inbox" | "agents" | "tracking" | "monitor" | "maintenance" | "settings";
+export type ActiveView = "new-chat" | "briefings" | "inbox" | "agents" | "projects" | "tracking" | "monitor" | "maintenance" | "settings";
+
+export type ProjectRecord = {
+  id: string;
+  name: string;
+  description?: string;
+  starred: boolean;
+  archived: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
 
 const items = [
   { id: "new-chat" as const, label: "New Chat", icon: MessageSquarePlus },
   { id: "briefings" as const, label: "Briefings", icon: BellRing },
   { id: "inbox" as const, label: "Inbox", icon: Inbox },
   { id: "agents" as const, label: "Agents", icon: Users },
+  { id: "projects" as const, label: "Projects", icon: Folder },
   { id: "tracking" as const, label: "Tracking", icon: ListTodo },
   { id: "monitor" as const, label: "Monitor", icon: Activity },
   { id: "maintenance" as const, label: "Maintenance", icon: Wrench },
@@ -26,13 +37,150 @@ type RailContentProps = {
   onOpenInstall?: () => void;
   unreadTotal?: number;
   account?: AccountRecord;
+  projects?: ProjectRecord[];
+  conversations?: ConversationRecord[];
+  activeProjectId?: string | null;
+  activeConversationId?: string | null;
+  editingConversationId?: string | null;
+  onSelectProject?: (project: ProjectRecord) => void;
+  onToggleProjectStar?: (project: ProjectRecord) => void;
+  onEditProject?: (project: ProjectRecord) => void;
+  onArchiveProject?: (project: ProjectRecord) => void;
+  onDeleteProject?: (project: ProjectRecord) => void;
+  onRestoreProject?: (project: ProjectRecord) => void;
+  onSelectConversation?: (conversation: ConversationRecord) => void;
+  onToggleConversationStar?: (conversation: ConversationRecord) => void;
+  onStartRenameConversation?: (conversation: ConversationRecord) => void;
+  onCommitRenameConversation?: (conversation: ConversationRecord, title: string) => void;
+  onCancelRenameConversation?: () => void;
+  onOpenChangeProject?: (conversation: ConversationRecord) => void;
+  onRemoveConversationFromProject?: (conversation: ConversationRecord) => void;
+  onDeleteConversation?: (conversation: ConversationRecord) => void;
 };
 
-function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettingsSection, onOpenInstall, unreadTotal = 0, account = DEFAULT_ACCOUNT }: RailContentProps) {
+function ProjectRow({ project, active, collapsed, onSelect, onToggleStar, onEdit, onArchive, onDelete, onRestore }: {
+  project: ProjectRecord;
+  active: boolean;
+  collapsed: boolean;
+  onSelect?: (project: ProjectRecord) => void;
+  onToggleStar?: (project: ProjectRecord) => void;
+  onEdit?: (project: ProjectRecord) => void;
+  onArchive?: (project: ProjectRecord) => void;
+  onDelete?: (project: ProjectRecord) => void;
+  onRestore?: (project: ProjectRecord) => void;
+}) {
+  return (
+    <div className="group/project relative" data-testid="project-row" data-project-id={project.id}>
+      <button
+        type="button"
+        title={collapsed ? project.name : undefined}
+        onClick={() => onSelect?.(project)}
+        className={cn(
+          "flex w-full items-center rounded-lg border border-transparent px-2 py-1.5 text-left text-foreground/72 transition hover:bg-foreground/5 hover:text-foreground",
+          collapsed ? "justify-center" : "gap-2 pr-8",
+          active && "border-[color-mix(in_srgb,var(--warm-glow)_25%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_8%,transparent)] text-foreground",
+        )}
+      >
+        <Folder className={cn("h-3.5 w-3.5 shrink-0", active ? "text-[var(--warm-glow)]" : "opacity-70")} />
+        {!collapsed && <span className="min-w-0 flex-1 truncate text-[11px]">{project.name}</span>}
+      </button>
+      {!collapsed && (
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition group-hover/project:opacity-100 group-focus-within/project:opacity-100">
+          <button type="button" aria-label={`Project actions for ${project.name}`} className="peer flex h-6 w-6 items-center justify-center rounded-md hover:bg-foreground/8">
+            <Ellipsis className="h-3.5 w-3.5" />
+          </button>
+          <div className="pointer-events-none absolute left-full top-0 z-50 ml-1 w-44 rounded-xl border border-foreground/10 bg-background/95 p-1 opacity-0 shadow-2xl backdrop-blur-xl transition peer-hover:pointer-events-auto peer-hover:opacity-100 hover:pointer-events-auto hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100">
+            {!project.archived ? (
+              <>
+                <button type="button" data-project-action="toggle-star" onClick={() => onToggleStar?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Star className="h-3.5 w-3.5" />{project.starred ? "Unstar" : "Star"}</button>
+                <button type="button" data-project-action="edit" onClick={() => onEdit?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Pencil className="h-3.5 w-3.5" />Edit details</button>
+                <button type="button" data-project-action="archive" onClick={() => onArchive?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Archive className="h-3.5 w-3.5" />Archive</button>
+                <button type="button" data-project-action="delete" onClick={() => onDelete?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+              </>
+            ) : (
+              <>
+                <button type="button" data-project-action="restore" onClick={() => onRestore?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><RotateCcw className="h-3.5 w-3.5" />Restore</button>
+                <button type="button" data-project-action="delete" onClick={() => onDelete?.(project)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ConversationRow({ conversation, active, editing, onSelect, onToggleStar, onStartRename, onCommitRename, onCancelRename, onOpenChangeProject, onRemoveFromProject, onDelete }: {
+  conversation: ConversationRecord;
+  active: boolean;
+  editing: boolean;
+  onSelect?: (conversation: ConversationRecord) => void;
+  onToggleStar?: (conversation: ConversationRecord) => void;
+  onStartRename?: (conversation: ConversationRecord) => void;
+  onCommitRename?: (conversation: ConversationRecord, title: string) => void;
+  onCancelRename?: () => void;
+  onOpenChangeProject?: (conversation: ConversationRecord) => void;
+  onRemoveFromProject?: (conversation: ConversationRecord) => void;
+  onDelete?: (conversation: ConversationRecord) => void;
+}) {
+  const projectId = conversation.project_id ?? conversation.projectId ?? null;
+  return (
+    <div className="group/recent relative" data-testid="recent-row" data-conversation-id={conversation.id}>
+      {editing ? (
+        <input
+          autoFocus
+          defaultValue={conversation.title}
+          onClick={(event) => event.stopPropagation()}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") onCommitRename?.(conversation, event.currentTarget.value);
+            if (event.key === "Escape") onCancelRename?.();
+          }}
+          onBlur={(event) => onCommitRename?.(conversation, event.currentTarget.value)}
+          className="h-8 w-full rounded-lg border border-[var(--warm-glow)] bg-background/80 px-2 text-[11px] text-foreground outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => onSelect?.(conversation)}
+          className={cn(
+            "flex h-8 w-full items-center rounded-lg border border-transparent px-2 pr-8 text-left text-foreground/70 transition hover:bg-foreground/5 hover:text-foreground",
+            active && "border-[color-mix(in_srgb,var(--warm-glow)_25%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_8%,transparent)] text-foreground",
+          )}
+        >
+          <span className="min-w-0 flex-1 truncate text-[11px]">{conversation.title || "Untitled conversation"}</span>
+        </button>
+      )}
+      {!editing && (
+        <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition group-hover/recent:opacity-100 group-focus-within/recent:opacity-100">
+          <button type="button" aria-label={`Conversation actions for ${conversation.title}`} className="peer flex h-6 w-6 items-center justify-center rounded-md hover:bg-foreground/8">
+            <Ellipsis className="h-3.5 w-3.5" />
+          </button>
+          <div className="pointer-events-none absolute left-full top-0 z-50 ml-1 w-52 rounded-xl border border-foreground/10 bg-background/95 p-1 opacity-0 shadow-2xl backdrop-blur-xl transition peer-hover:pointer-events-auto peer-hover:opacity-100 hover:pointer-events-auto hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100" data-testid="recents-action-menu">
+            <button type="button" data-conversation-action="star" onClick={() => onToggleStar?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Star className="h-3.5 w-3.5" />Star</button>
+            <button type="button" data-conversation-action="rename" onClick={() => onStartRename?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Pencil className="h-3.5 w-3.5" />Rename</button>
+            <button type="button" data-conversation-action="change-project" onClick={() => onOpenChangeProject?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Folder className="h-3.5 w-3.5" />Change project</button>
+            <button type="button" data-conversation-action="remove-project" disabled={!projectId} onClick={() => onRemoveFromProject?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6 disabled:cursor-not-allowed disabled:opacity-40"><Archive className="h-3.5 w-3.5" />Remove from project</button>
+            <div className="my-1 border-t border-foreground/10" />
+            <button type="button" data-conversation-action="delete" onClick={() => onDelete?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettingsSection, onOpenInstall, unreadTotal = 0, account = DEFAULT_ACCOUNT, projects = [], conversations = [], activeProjectId = null, activeConversationId = null, editingConversationId = null, ...handlers }: RailContentProps) {
   const openSettingsSection = (section: SettingsSection) => {
     onOpenSettingsSection?.(section);
     navigateToSettingsSection(section);
   };
+  const starredProjects = projects.filter((project) => project.starred && !project.archived);
+  const recentConversations = [...conversations].sort((a, b) => {
+    const aStarred = Boolean(a.starred ?? a.pinned);
+    const bStarred = Boolean(b.starred ?? b.pinned);
+    if (aStarred !== bStarred) return aStarred ? -1 : 1;
+    return String(b.last_message_at ?? b.updated_at ?? "").localeCompare(String(a.last_message_at ?? a.updated_at ?? ""));
+  });
 
   return (
     <div className="flex h-full flex-col">
@@ -45,7 +193,8 @@ function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettin
           </div>
         )}
       </div>
-      <div className="mt-4 flex-1">
+
+      <div className="mt-4 flex min-h-0 flex-1 flex-col pr-0.5">
         {!collapsed && <div className="px-2 pb-1.5 pt-3.5 text-[9px] uppercase tracking-[0.16em] text-foreground/70">MAIN</div>}
         <div className="space-y-1.5">
           {items.map((item) => {
@@ -71,7 +220,44 @@ function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettin
             );
           })}
         </div>
+
+        {!collapsed && (
+          <>
+            <div className="px-2 pb-1.5 pt-5 text-foreground/70" aria-label="Starred projects">
+              <span className="sr-only">Starred projects</span>
+              <Star className="h-3.5 w-3.5 opacity-80" aria-hidden="true" />
+            </div>
+            <div className="space-y-1">
+              {starredProjects.length === 0 ? <div className="px-2 py-1 text-[10px] text-muted-foreground/70">No starred projects</div> : starredProjects.map((project) => (
+                <ProjectRow key={project.id} project={project} active={activeProjectId === project.id} collapsed={collapsed} onSelect={handlers.onSelectProject} onToggleStar={handlers.onToggleProjectStar} onEdit={handlers.onEditProject} onArchive={handlers.onArchiveProject} onDelete={handlers.onDeleteProject} onRestore={handlers.onRestoreProject} />
+              ))}
+            </div>
+
+            <div className="px-2 pb-1.5 pt-5 text-[9px] uppercase tracking-[0.16em] text-foreground/70">RECENTS</div>
+            <div className="max-h-[245px] min-h-[110px] overflow-y-auto pr-1" data-testid="recents-scroll-region">
+              <div className="space-y-1">
+                {recentConversations.length === 0 ? <div className="px-2 py-1 text-[10px] text-muted-foreground/70">No recent conversations</div> : recentConversations.map((conversation) => (
+                  <ConversationRow
+                    key={conversation.id}
+                    conversation={conversation}
+                    active={activeConversationId === conversation.id}
+                    editing={editingConversationId === conversation.id}
+                    onSelect={handlers.onSelectConversation}
+                    onToggleStar={handlers.onToggleConversationStar}
+                    onStartRename={handlers.onStartRenameConversation}
+                    onCommitRename={handlers.onCommitRenameConversation}
+                    onCancelRename={handlers.onCancelRenameConversation}
+                    onOpenChangeProject={handlers.onOpenChangeProject}
+                    onRemoveFromProject={handlers.onRemoveConversationFromProject}
+                    onDelete={handlers.onDeleteConversation}
+                  />
+                ))}
+              </div>
+            </div>
+          </>
+        )}
       </div>
+
       <div className={cn("border-t border-foreground/8 pt-3.5", collapsed && "flex flex-col items-center gap-2")}>
         <div className={cn("flex items-center", collapsed ? "flex-col gap-2" : "gap-2")}>
           <button

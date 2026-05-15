@@ -178,14 +178,14 @@ export const api = {
     fetchJSON<{ ok: boolean }>(`/api/user-content/backgrounds/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getConversationMessages: (conversationId: string) =>
     fetchJSON<{ conversation_id: string; messages: ConversationMessage[] }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}/messages`),
-  createConversation: (agentId: string, title?: string) =>
-    fetchJSON<{ conversation: { id: string; agent_id: string; title: string } }>("/api/mission-control/conversations", {
+  createConversation: (agentId: string, title?: string, projectId?: string | null) =>
+    fetchJSON<{ conversation: { id: string; agent_id: string; title: string; project_id?: string | null } }>("/api/mission-control/conversations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agent_id: agentId, title }),
+      body: JSON.stringify({ agent_id: agentId, title, project_id: projectId ?? null }),
     }),
-  updateConversation: (conversationId: string, patch: { title?: string; pinned?: boolean; agent_id?: string }) =>
-    fetchJSON<{ conversation: { id: string; title: string; pinned: boolean } }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}`, {
+  updateConversation: (conversationId: string, patch: { title?: string; pinned?: boolean; starred?: boolean; agent_id?: string; project_id?: string | null; projectId?: string | null }) =>
+    fetchJSON<{ conversation: { id: string; title: string; pinned: boolean; starred?: boolean; project_id?: string | null } }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),

@@ -1806,12 +1806,19 @@ def _normalize_conversation_payload(payload: dict[str, Any], existing: dict[str,
     now = _utc_now_iso()
     base = deepcopy(existing or {})
     title = (payload.get("title") or base.get("title") or "New conversation").strip()[:120] or "New conversation"
+    pinned = bool(payload.get("pinned", base.get("pinned", payload.get("starred", base.get("starred", False)))))
+    starred = bool(payload.get("starred", base.get("starred", pinned)))
+    project_id = payload.get("project_id", payload.get("projectId", base.get("project_id", base.get("projectId"))))
+    if project_id == "":
+        project_id = None
     return {
         "id": base.get("id") or _gen_id("conv"),
         "agent_id": payload.get("agent_id", base.get("agent_id")),
         "title": title,
         "session_id": payload.get("session_id", base.get("session_id")),
-        "pinned": bool(payload.get("pinned", base.get("pinned", False))),
+        "pinned": pinned,
+        "starred": starred,
+        "project_id": project_id,
         "created_at": base.get("created_at", now),
         "updated_at": now,
         "last_message_at": payload.get("last_message_at", base.get("last_message_at")),
@@ -2283,12 +2290,17 @@ class AgentUpdateRequest(BaseModel):
 class ConversationCreateRequest(BaseModel):
     agent_id: str
     title: Optional[str] = None
+    project_id: Optional[str] = None
+    projectId: Optional[str] = None
 
 
 class ConversationUpdateRequest(BaseModel):
     title: Optional[str] = None
     pinned: Optional[bool] = None
+    starred: Optional[bool] = None
     agent_id: Optional[str] = None
+    project_id: Optional[str] = None
+    projectId: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -3160,7 +3172,7 @@ async def create_conversation(body: ConversationCreateRequest) -> dict[str, Any]
     state = _load_state()
     if not any(agent["id"] == body.agent_id for agent in state["agents"]):
         raise HTTPException(status_code=404, detail="Agent not found")
-    conversation = _normalize_conversation_payload({"agent_id": body.agent_id, "title": body.title or "New conversation"})
+    conversation = _normalize_conversation_payload({"agent_id": body.agent_id, "title": body.title or "New conversation", "project_id": body.project_id, "projectId": body.projectId})
     state["conversations"].append(conversation)
     _audit(state, "conversation.created", {"conversation_id": conversation["id"], "agent_id": body.agent_id})
     _save_state(state)
@@ -3175,10 +3187,20 @@ async def update_conversation(conversation_id: str, body: ConversationUpdateRequ
     if idx is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
     existing = state["conversations"][idx]
+    starred_value = body.starred if body.starred is not None else existing.get("starred", existing.get("pinned", False))
+    fields_set = getattr(body, "model_fields_set", getattr(body, "__fields_set__", set()))
+    if "project_id" in fields_set:
+        project_id_value = body.project_id
+    elif "projectId" in fields_set:
+        project_id_value = body.projectId
+    else:
+        project_id_value = existing.get("project_id")
     payload = {
         "agent_id": body.agent_id or existing.get("agent_id"),
         "title": body.title if body.title is not None else existing.get("title"),
-        "pinned": body.pinned if body.pinned is not None else existing.get("pinned", False),
+        "pinned": body.pinned if body.pinned is not None else existing.get("pinned", starred_value),
+        "starred": starred_value,
+        "project_id": project_id_value,
         "session_id": existing.get("session_id"),
         "last_message_at": existing.get("last_message_at"),
         "last_run_status": existing.get("last_run_status", "idle"),

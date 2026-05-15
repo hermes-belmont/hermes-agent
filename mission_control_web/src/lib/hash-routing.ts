@@ -8,7 +8,7 @@
 
 import type { SettingsSection } from "@/components/SettingsView";
 
-export type AppView = "new-chat" | "briefings" | "inbox" | "agents" | "tracking" | "monitor" | "maintenance" | "settings";
+export type AppView = "new-chat" | "briefings" | "inbox" | "agents" | "projects" | "tracking" | "monitor" | "maintenance" | "settings";
 
 export type ResolvedHashView = {
   view: AppView;
@@ -61,6 +61,10 @@ export function resolveHashView(rawHash: string): ResolvedHashView {
 
   if (hash === "#/agents") {
     return { view: "agents", settingsSection: "models", fallback: false, redirectToModels: false };
+  }
+
+  if (hash === "#/projects" || hash.startsWith("#/projects/")) {
+    return { view: "projects", settingsSection: "models", fallback: false, redirectToModels: false };
   }
 
   if (hash === "#/tracking" || hash.startsWith("#/tracking?")) {
