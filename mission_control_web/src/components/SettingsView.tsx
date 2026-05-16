@@ -609,8 +609,8 @@ function AccountPage({ account, onAccountChange }: { account: AccountRecord; onA
 
 export function SettingsView({ section, catalog, onSelectSection, activeTheme, onSelectTheme, activeBackground, onSelectBackground, account, onAccountChange, onOpenInstall }: Props) {
   return (
-    <section className="grid flex-1 gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
-      <aside className="flex flex-col gap-1">
+    <section className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
+      <aside className="flex flex-col gap-1 lg:sticky lg:top-6 lg:self-start">
         <div className="px-2 pb-1.5 text-[9px] uppercase tracking-[0.16em] text-foreground/70">Settings</div>
         {SECTIONS.map((item) => {
           const Icon = item.icon;
@@ -634,7 +634,7 @@ export function SettingsView({ section, catalog, onSelectSection, activeTheme, o
         })}
       </aside>
 
-      <div className="flex flex-1 flex-col">
+      <div className="min-h-0 max-h-[calc(100vh-3rem)] overflow-y-auto pr-1">
         {section === "models" ? (
           <ModelsPage catalog={catalog} />
         ) : section === "themes" ? (
