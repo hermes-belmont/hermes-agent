@@ -67,9 +67,37 @@ MISSION_CONTROL_DIST = (
     if "HERMES_MISSION_CONTROL_DIST" in os.environ
     else Path(__file__).parent / "mission_control_dist"
 )
-MISSION_CONTROL_HOME = get_hermes_home() / "mission_control"
-MISSION_CONTROL_STATE_PATH = MISSION_CONTROL_HOME / "state.json"
-MISSION_CONTROL_UPLOAD_DIR = MISSION_CONTROL_HOME / "uploads"
+
+
+def get_mission_control_home() -> Path:
+    return get_hermes_home() / "mission_control"
+
+
+def get_mission_control_state_path() -> Path:
+    return get_mission_control_home() / "state.json"
+
+
+def get_mission_control_upload_dir() -> Path:
+    return get_mission_control_home() / "uploads"
+
+
+def _assert_safe_state_path() -> None:
+    state_path = get_mission_control_state_path()
+    production_path = Path.home() / ".hermes" / "mission_control" / "state.json"
+    running_under_pytest = "PYTEST_CURRENT_TEST" in os.environ
+    if running_under_pytest and state_path.resolve() == production_path.resolve():
+        raise RuntimeError(
+            f"Refusing to write Mission Control state to production path {state_path} during pytest. "
+            f"HERMES_HOME isolation failed. Check test imports."
+        )
+
+
+# Deprecated compatibility aliases for external callers/tests that import these
+# names directly. Internal code should call the getter functions above so
+# HERMES_HOME changes made after module import are honored.
+MISSION_CONTROL_HOME = get_mission_control_home()
+MISSION_CONTROL_STATE_PATH = get_mission_control_state_path()
+MISSION_CONTROL_UPLOAD_DIR = get_mission_control_upload_dir()
 USER_BACKGROUND_DIR = get_hermes_home() / "user-content" / "backgrounds"
 RUNTIME_DIR = get_hermes_home() / "runtime"
 USER_DUMP_DIR = RUNTIME_DIR / "dumps"
@@ -120,8 +148,8 @@ AVATAR_IMAGE_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=
 MAX_AVATAR_IMAGE_BYTES = 300 * 1024
 
 app = FastAPI(title="Hermes Mission Control", version=__version__)
-MISSION_CONTROL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-app.mount("/mission-control/uploads", StaticFiles(directory=str(MISSION_CONTROL_UPLOAD_DIR)), name="mission_control_uploads")
+get_mission_control_upload_dir().mkdir(parents=True, exist_ok=True)
+app.mount("/mission-control/uploads", StaticFiles(directory=str(get_mission_control_upload_dir())), name="mission_control_uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=ALLOWED_ORIGIN_REGEX,
@@ -463,7 +491,7 @@ def _doctor_checks() -> dict[str, Any]:
         checks.append({"name": "Mission Control API", "status": "ok" if health["ok"] else "fail", "detail": f"{sum(1 for c in health['checks'] if 200 <= c['status'] < 300)} / {len(health['checks'])} checks passing"})
     except Exception as exc:
         checks.append({"name": "Mission Control API", "status": "fail", "detail": str(exc)})
-    for label, path in [("Mission Control dist", MISSION_CONTROL_DIST), ("Mission Control state", MISSION_CONTROL_STATE_PATH), ("Runtime directory", RUNTIME_DIR)]:
+    for label, path in [("Mission Control dist", MISSION_CONTROL_DIST), ("Mission Control state", get_mission_control_state_path()), ("Runtime directory", RUNTIME_DIR)]:
         checks.append({"name": label, "status": "ok" if path.exists() else "warn", "detail": str(path)})
     failures = sum(1 for c in checks if c["status"] == "fail")
     warnings = sum(1 for c in checks if c["status"] == "warn")
@@ -517,7 +545,7 @@ def _write_debug_dump() -> dict[str, Any]:
 
 def _safe_backup_sources() -> list[Path]:
     home = get_hermes_home()
-    sources = [MISSION_CONTROL_STATE_PATH, home / "gateway_state.json", home / "processes.json", home / "channel_directory.json"]
+    sources = [get_mission_control_state_path(), home / "gateway_state.json", home / "processes.json", home / "channel_directory.json"]
     sessions = home / "sessions"
     if sessions.exists():
         sources.extend(sorted([p for p in sessions.glob("session_*.json") if p.is_file() and p.stat().st_size <= 1_000_000], key=lambda p: p.stat().st_mtime, reverse=True)[:5])
@@ -1694,10 +1722,13 @@ def _seed_state() -> dict[str, Any]:
 
 
 def _write_state(state: dict[str, Any]) -> None:
-    MISSION_CONTROL_HOME.mkdir(parents=True, exist_ok=True)
-    tmp = MISSION_CONTROL_STATE_PATH.with_suffix(".json.tmp")
+    _assert_safe_state_path()
+    home = get_mission_control_home()
+    state_path = get_mission_control_state_path()
+    home.mkdir(parents=True, exist_ok=True)
+    tmp = state_path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(state, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(MISSION_CONTROL_STATE_PATH)
+    tmp.replace(state_path)
 
 
 
@@ -1986,12 +2017,13 @@ def _build_account_export(state: dict[str, Any]) -> dict[str, Any]:
 
 def _load_state() -> dict[str, Any]:
     with STATE_LOCK:
-        if not MISSION_CONTROL_STATE_PATH.exists():
+        state_path = get_mission_control_state_path()
+        if not state_path.exists():
             state = _seed_state()
             _write_state(state)
             return state
         try:
-            raw = json.loads(MISSION_CONTROL_STATE_PATH.read_text(encoding="utf-8"))
+            raw = json.loads(state_path.read_text(encoding="utf-8"))
         except Exception:
             raw = _seed_state()
         raw.setdefault("agents", [])
@@ -2361,7 +2393,7 @@ def _safe_upload_name(name: str | None) -> str:
 
 def _upload_ref_from_path(path: Path, conversation_id: str, original_name: str, content_type: str) -> dict[str, Any]:
     stat = path.stat()
-    rel = path.relative_to(MISSION_CONTROL_UPLOAD_DIR).as_posix()
+    rel = path.relative_to(get_mission_control_upload_dir()).as_posix()
     kind = "video" if content_type.startswith("video/") else "image"
     return {
         "id": path.stem,
@@ -2400,7 +2432,7 @@ async def upload_chat_attachments(body: ChatAttachmentUploadRequest) -> dict[str
     if len(body.files) > MAX_CHAT_ATTACHMENTS:
         raise HTTPException(status_code=413, detail="Maximum 10 attachments")
     target_id = _safe_upload_name(body.conversation_id or "pending")
-    target_dir = MISSION_CONTROL_UPLOAD_DIR / target_id
+    target_dir = get_mission_control_upload_dir() / target_id
     target_dir.mkdir(parents=True, exist_ok=True)
     refs: list[dict[str, Any]] = []
     total = 0
