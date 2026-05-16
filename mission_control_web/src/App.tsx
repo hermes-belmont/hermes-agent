@@ -23,7 +23,7 @@ import {
   Archive,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AccountRecord, AgentRecord, BootstrapResponse, ConversationMessage, ConversationRecord } from "@/lib/types";
+import type { AccountRecord, AgentRecord, BootstrapResponse, ConversationMessage, ConversationRecord, EntityRecord } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -595,6 +595,54 @@ function Popover({ children, className = "" }: { children: ReactNode; className?
 
 type LoadingPhrase = { face: string; verb: string };
 
+type AgentEntityTag = {
+  label: "TRUST" | "HOLDINGS" | "MEDIA" | "PROPERTIES" | "CUSTOMS" | "PERSONAL";
+  group: string;
+  order: number;
+  className: string;
+};
+
+const AGENT_ENTITY_TAGS: AgentEntityTag[] = [
+  { label: "TRUST", group: "UMBRELLA CORPORATION TRUST", order: 0, className: "border-cyan-300/65 bg-cyan-300/10 text-cyan-200" },
+  { label: "HOLDINGS", group: "UMBRELLA HOLDINGS", order: 1, className: "border-emerald-300/65 bg-emerald-300/10 text-emerald-200" },
+  { label: "MEDIA", group: "UMBRELLA MEDIA", order: 2, className: "border-blue-300/65 bg-blue-300/10 text-blue-200" },
+  { label: "PROPERTIES", group: "UMBRELLA PROPERTIES", order: 3, className: "border-slate-300/65 bg-slate-300/10 text-slate-200" },
+  { label: "CUSTOMS", group: "UMBRELLA CUSTOMS", order: 4, className: "border-orange-300/70 bg-orange-300/10 text-orange-200" },
+  { label: "PERSONAL", group: "PERSONAL", order: 5, className: "border-muted-foreground/45 bg-muted-foreground/10 text-muted-foreground" },
+];
+
+function flattenEntityTree(entities: EntityRecord[]): EntityRecord[] {
+  return entities.flatMap((entity) => [entity, ...flattenEntityTree(entity.children ?? [])]);
+}
+
+function entityTagFromName(name?: string | null): AgentEntityTag {
+  const normalized = (name ?? "").toLowerCase();
+  if (normalized.includes("trust")) return AGENT_ENTITY_TAGS[0];
+  if (normalized.includes("holdings")) return AGENT_ENTITY_TAGS[1];
+  if (normalized.includes("media")) return AGENT_ENTITY_TAGS[2];
+  if (normalized.includes("properties")) return AGENT_ENTITY_TAGS[3];
+  if (normalized.includes("customs")) return AGENT_ENTITY_TAGS[4];
+  if (normalized.includes("personal")) return AGENT_ENTITY_TAGS[5];
+  return AGENT_ENTITY_TAGS[5];
+}
+
+function agentEntityTag(agent: AgentRecord, entityTree: EntityRecord[]): AgentEntityTag {
+  const entities = flattenEntityTree(entityTree);
+  const directEntity = entities.find((entity) => entity.id === agent.entity_id);
+  if (directEntity) return entityTagFromName(directEntity.name);
+  const treeEntity = entities.find((entity) => (entity.agents ?? []).some((treeAgent) => treeAgent.id === agent.id));
+  if (treeEntity) return entityTagFromName(treeEntity.name);
+  return entityTagFromName(agent.operating_entity);
+}
+
+function sortedAgentsForSelector(agents: AgentRecord[], entityTree: EntityRecord[]): Array<{ agent: AgentRecord; tag: AgentEntityTag; showHeader: boolean }> {
+  const sorted = agents
+    .map((agent) => ({ agent, tag: agentEntityTag(agent, entityTree) }))
+    .sort((a, b) => a.tag.order - b.tag.order || a.agent.name.localeCompare(b.agent.name) || a.agent.id.localeCompare(b.agent.id));
+  return sorted.map((item, index) => ({ ...item, showHeader: index === 0 || sorted[index - 1].tag.label !== item.tag.label }));
+}
+
+
 function formatLoadingElapsed(startedAt: number): string {
   const seconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
   if (seconds < 60) return `${seconds}s`;
@@ -704,6 +752,7 @@ function ChatMessageRow({ message, loadingPhrases }: { message: ConversationMess
 function HermesChatView({
   account,
   agents,
+  entityTree,
   conversations,
   messages,
   composerText,
@@ -728,6 +777,7 @@ function HermesChatView({
 }: {
   account: AccountRecord;
   agents: AgentRecord[];
+  entityTree: EntityRecord[];
   conversations: BootstrapResponse["conversations"];
   messages: ConversationMessage[];
   composerText: string;
@@ -755,6 +805,7 @@ function HermesChatView({
   const displayProfile = activeAgent?.name ?? "default";
   const projectName = activeProject?.name ?? "new";
   const profileModel = modelForAgent(activeAgent, activeModel);
+  const selectorAgents = sortedAgentsForSelector(agents, entityTree);
   const [loadingPhrases, setLoadingPhrases] = useState<LoadingPhrase[]>([]);
 
   useEffect(() => {
@@ -828,18 +879,25 @@ function HermesChatView({
               </button>
               {profilesOpen && (
                 <Popover>
-                  <div className="px-2 py-1 font-expanded text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Agent Profile</div>
-                  <div className="mt-1 max-h-[320px] overflow-y-auto">
-                    {agents.map((agent) => {
+                  <div className="px-2 py-1 font-expanded text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Agent Selector</div>
+                  <div className="mt-1 max-h-[520px] overflow-y-auto" data-testid="agent-selector-list">
+                    {selectorAgents.map(({ agent, tag, showHeader }) => {
                       const active = agent.id === activeAgent?.id;
                       return (
-                        <button key={agent.id} type="button" onClick={() => onSelectAgent(agent)} className="flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition hover:bg-foreground/6">
-                          <BrainCircuit className={cn("mt-0.5 h-4 w-4", active ? "text-[var(--warm-glow)]" : "text-muted-foreground")} />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex items-center gap-2 text-sm text-foreground/86">{agent.name}{active && <span className="rounded-full border border-[var(--warm-glow)]/30 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--warm-glow)]">active</span>}</span>
-                            <span className="mt-0.5 block text-[11px] text-muted-foreground">{modelForAgent(agent)} · {providerLabel(agent)}</span>
-                          </span>
-                        </button>
+                        <div key={agent.id}>
+                          {showHeader && <div className="px-3 pb-1 pt-2 text-[9px] uppercase tracking-[0.2em] text-muted-foreground/75">{tag.group}</div>}
+                          <button type="button" onClick={() => onSelectAgent(agent)} className="flex w-full items-start gap-3 rounded-2xl px-3 py-2 text-left transition hover:bg-foreground/6">
+                            <BrainCircuit className={cn("mt-0.5 h-4 w-4 shrink-0", active ? "text-[var(--warm-glow)]" : "text-muted-foreground")} />
+                            <span className="min-w-0 flex-1">
+                              <span className="flex items-center gap-2 text-sm text-foreground/86">
+                                <span className="min-w-0 flex-1 truncate">{agent.name}</span>
+                                {active && <span className="rounded-full border border-[var(--warm-glow)]/30 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--warm-glow)]">active</span>}
+                                <span data-testid="agent-entity-pill" className={cn("rounded-full border px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em]", tag.className)}>{tag.label}</span>
+                              </span>
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">{modelForAgent(agent)} · {providerLabel(agent)}</span>
+                            </span>
+                          </button>
+                        </div>
                       );
                     })}
                   </div>
@@ -1456,6 +1514,7 @@ export default function App() {
               <HermesChatView
                 account={account}
                 agents={bootstrap.agents}
+                entityTree={bootstrap.entity_tree ?? []}
                 conversations={bootstrap.conversations}
                 messages={messages}
                 composerText={composerText}
