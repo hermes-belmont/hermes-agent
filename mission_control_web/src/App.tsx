@@ -21,9 +21,10 @@ import {
   Ellipsis,
   Trash2,
   Archive,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api";
-import type { AccountRecord, AgentRecord, BootstrapResponse, ConversationMessage, ConversationRecord, EntityRecord } from "@/lib/types";
+import type { AccountRecord, AgentRecord, BootstrapResponse, ConversationMessage, ConversationRecord, EntityRecord, ChatAttachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -595,6 +596,19 @@ function Popover({ children, className = "" }: { children: ReactNode; className?
 
 type LoadingPhrase = { face: string; verb: string };
 
+type PendingAttachment = { id: string; file: File; url: string; status: "ready" | "uploading" | "error"; error?: string };
+const MAX_CHAT_ATTACHMENTS = 10;
+const MAX_CHAT_ATTACHMENT_BYTES = 50 * 1024 * 1024;
+function isMediaFile(file: File): boolean { return file.type.startsWith("image/") || file.type.startsWith("video/"); }
+function formatBytes(size: number): string { return size >= 1024 * 1024 ? `${(size / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(size / 1024))} KB`; }
+function shortModelName(model: string): string { return model.includes("/") ? model.split("/").pop() || model : model; }
+function providerFromModel(model: string): string { return model.includes("/") ? model.split("/")[0] : "OpenAI Codex"; }
+function modelGroups(models: string[]): Array<{ provider: string; models: string[] }> {
+  const map = new Map<string, string[]>();
+  models.forEach((model) => { const provider = providerFromModel(model); map.set(provider, [...(map.get(provider) ?? []), model]); });
+  return Array.from(map.entries()).map(([provider, values]) => ({ provider, models: values.sort((a, b) => shortModelName(a).localeCompare(shortModelName(b))) }));
+}
+
 type AgentEntityTag = {
   label: "TRUST" | "HOLDINGS" | "MEDIA" | "PROPERTIES" | "CUSTOMS" | "PERSONAL";
   group: string;
@@ -651,6 +665,38 @@ function formatLoadingElapsed(startedAt: number): string {
 
 function renderToolText(message: ConversationMessage): string {
   return (message.tool_events ?? []).map((tool) => `${tool.name} · ${tool.status}`).join("\n");
+}
+
+function AttachmentThumbGrid({ attachments }: { attachments: ChatAttachment[] }) {
+  const [lightbox, setLightbox] = useState<ChatAttachment | null>(null);
+  return (
+    <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="message-attachments">
+      {attachments.map((item) => (
+        <button key={item.id} type="button" onClick={() => setLightbox(item)} className="group overflow-hidden rounded-xl border border-foreground/10 bg-black/20 text-left">
+          <div className="flex aspect-video items-center justify-center bg-black/30">
+            {item.kind === "video" ? <video src={item.url} className="h-full w-full object-cover" muted preload="metadata" /> : <img src={item.url} alt={item.filename} className="h-full w-full object-cover" />}
+          </div>
+          <div className="truncate px-2 py-1 text-[10px] text-muted-foreground">{item.filename}</div>
+        </button>
+      ))}
+      {lightbox && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/75 p-6" onClick={() => setLightbox(null)}>
+          <div className="max-h-full max-w-5xl overflow-hidden rounded-2xl border border-foreground/10 bg-background p-3">
+            {lightbox.kind === "video" ? <video src={lightbox.url} controls className="max-h-[78vh] max-w-full" /> : <img src={lightbox.url} alt={lightbox.filename} className="max-h-[78vh] max-w-full" />}
+            <div className="mt-2 text-xs text-muted-foreground">{lightbox.filename}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AttachmentChip({ item, onRemove }: { item: PendingAttachment; onRemove: () => void }) {
+  return <div data-testid="attachment-chip" className={cn("flex max-w-[220px] items-center gap-2 rounded-xl border bg-foreground/5 p-1.5 pr-2", item.status === "error" ? "border-red-400/50 text-red-100" : "border-foreground/10")}>
+    <div className="flex h-10 w-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-black/30">{item.file.type.startsWith("video/") ? <video src={item.url} className="h-full w-full object-cover" muted preload="metadata" /> : <img src={item.url} alt="" className="h-full w-full object-cover" />}</div>
+    <div className="min-w-0 flex-1"><div className="truncate text-[11px] text-foreground/85">{item.file.name}</div><div className="text-[10px] text-muted-foreground">{formatBytes(item.file.size)}</div>{item.error && <div className="truncate text-[10px] text-red-200" title={item.error}>{item.error}</div>}</div>
+    <button type="button" aria-label={`Remove ${item.file.name}`} onClick={onRemove} className="rounded-full p-1 hover:bg-foreground/10"><X className="h-3 w-3" /></button>
+  </div>;
 }
 
 function ChatMessageRow({ message, loadingPhrases }: { message: ConversationMessage; loadingPhrases: LoadingPhrase[] }) {
@@ -735,6 +781,7 @@ function ChatMessageRow({ message, loadingPhrases }: { message: ConversationMess
             <span className="text-muted-foreground">· {elapsed}</span>
           </div>
         ) : null}
+        {message.attachments?.length ? <AttachmentThumbGrid attachments={message.attachments} /> : null}
         {message.tool_events && message.tool_events.length > 0 && (
           <div className="mt-3 flex flex-wrap gap-2">
             {message.tool_events.map((tool) => (
@@ -763,6 +810,9 @@ function HermesChatView({
   activeProject,
   reasoningLevel,
   attachments,
+  attachmentToast,
+  modelOpen,
+  availableModels,
   profilesOpen,
   reasoningOpen,
   onComposerChange,
@@ -771,6 +821,12 @@ function HermesChatView({
   onToggleProfiles,
   onToggleReasoning,
   onSelectReasoning,
+  onToggleModel,
+  onSelectModel,
+  onRemoveAttachment,
+  onDropFiles,
+  onPasteFiles,
+  onRejectAttachment,
   onOpenSettings,
   onAttachFiles,
   onStartVoice,
@@ -787,7 +843,10 @@ function HermesChatView({
   activeModel: string;
   activeProject: ProjectRecord | null;
   reasoningLevel: ReasoningLevel;
-  attachments: File[];
+  attachments: PendingAttachment[];
+  attachmentToast: string;
+  modelOpen: boolean;
+  availableModels: string[];
   profilesOpen: boolean;
   reasoningOpen: boolean;
   onComposerChange: (value: string) => void;
@@ -796,6 +855,12 @@ function HermesChatView({
   onToggleProfiles: () => void;
   onToggleReasoning: () => void;
   onSelectReasoning: (level: ReasoningLevel) => void;
+  onToggleModel: () => void;
+  onSelectModel: (model: string) => void;
+  onRemoveAttachment: (id: string) => void;
+  onDropFiles: (files: FileList | File[]) => void;
+  onPasteFiles: (files: File[]) => void;
+  onRejectAttachment: (message: string) => void;
   onOpenSettings: () => void;
   onAttachFiles: (files: FileList | null) => void;
   onStartVoice: () => void;
@@ -807,6 +872,8 @@ function HermesChatView({
   const profileModel = modelForAgent(activeAgent, activeModel);
   const selectorAgents = sortedAgentsForSelector(agents, entityTree);
   const [loadingPhrases, setLoadingPhrases] = useState<LoadingPhrase[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputAccept = "image/*,video/*";
 
   useEffect(() => {
     let cancelled = false;
@@ -852,16 +919,25 @@ function HermesChatView({
       </div>
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-5 sm:px-7">
-        <div className="pointer-events-auto mx-auto max-w-4xl rounded-[26px] border border-foreground/10 bg-background/80 p-4 shadow-[0_20px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl">
+        <div
+          className={cn("pointer-events-auto relative mx-auto max-w-4xl rounded-[26px] border bg-background/80 p-4 shadow-[0_20px_80px_rgba(0,0,0,0.42)] backdrop-blur-xl", dragActive ? "border-[var(--warm-glow)]" : "border-foreground/10")}
+          onDragEnter={(event) => { if (Array.from(event.dataTransfer.items ?? []).some((item) => item.kind === "file")) { event.preventDefault(); setDragActive(true); } }}
+          onDragOver={(event) => { if (Array.from(event.dataTransfer.items ?? []).some((item) => item.kind === "file")) { event.preventDefault(); setDragActive(true); } }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragActive(false); }}
+          onDrop={(event) => { event.preventDefault(); setDragActive(false); const files = Array.from(event.dataTransfer.files); if (files.length && !files.some(isMediaFile)) onRejectAttachment("Only images and videos can be attached"); onDropFiles(files); }}
+        >
+          {dragActive && <div data-testid="drop-overlay" className="pointer-events-none absolute inset-2 z-20 flex items-center justify-center rounded-[22px] border border-dashed border-[var(--warm-glow)] bg-background/80 text-sm text-[var(--warm-glow)] backdrop-blur-sm">Drop image or video to attach</div>}
           {chatError && <div className="mb-2 rounded-xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-100">{chatError}</div>}
+          {attachmentToast && <div className="mb-2 rounded-xl border border-amber-300/20 bg-amber-300/10 px-3 py-2 text-xs text-amber-100">{attachmentToast}</div>}
           {attachments.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
-              {attachments.map((file) => <span key={`${file.name}-${file.lastModified}`} className="rounded-full border border-foreground/10 px-2 py-1">{file.name}</span>)}
+              {attachments.map((item) => <AttachmentChip key={item.id} item={item} onRemove={() => onRemoveAttachment(item.id)} />)}
             </div>
           )}
           <textarea
             value={composerText}
             onChange={(event) => onComposerChange(event.target.value)}
+            onPaste={(event) => { const files = Array.from(event.clipboardData.items).filter((item) => item.kind === "file").map((item) => item.getAsFile()).filter((file): file is File => Boolean(file)); const media = files.filter(isMediaFile); if (media.length) { event.preventDefault(); onPasteFiles(media); } else if (files.length) onRejectAttachment("Only images and videos can be attached"); }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
                 event.preventDefault();
@@ -917,14 +993,30 @@ function HermesChatView({
                   ))}
                 </Popover>
               )}
-              <span className="px-1 text-foreground/60">{activeModel}</span>
+              <button type="button" onClick={onToggleModel} className="inline-flex items-center gap-2 rounded-full border border-foreground/10 bg-foreground/5 px-3 py-1.5 text-foreground/82 hover:border-foreground/18 hover:bg-foreground/8" data-testid="model-chip">
+                {activeModel}<ChevronDown className="h-3.5 w-3.5" />
+              </button>
+              {modelOpen && (
+                <Popover className="left-[220px] bottom-12 w-[330px]">
+                  <div className="px-2 py-1 font-expanded text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Model</div>
+                  <div className="mt-1 max-h-[360px] overflow-y-auto" data-testid="model-selector-list">
+                    {modelGroups(availableModels).map((group) => <div key={group.provider}>
+                      <div className="px-3 pb-1 pt-2 text-[9px] uppercase tracking-[0.2em] text-muted-foreground/75">{group.provider}</div>
+                      {group.models.map((model) => <button key={model} type="button" onClick={() => onSelectModel(model)} className="flex w-full items-center justify-between gap-3 rounded-2xl px-3 py-2 text-left transition hover:bg-foreground/6">
+                        <span className="min-w-0"><span className="block truncate text-sm text-foreground/86">{shortModelName(model)}</span><span className="mt-0.5 block text-[11px] text-muted-foreground">{providerFromModel(model)} / {model}</span></span>
+                        {model === activeModel && <span className="rounded-full border border-[var(--warm-glow)]/30 px-1.5 py-0.5 text-[9px] uppercase tracking-[0.12em] text-[var(--warm-glow)]">active</span>}
+                      </button>)}
+                    </div>)}
+                  </div>
+                </Popover>
+              )}
             </div>
             <div className="flex items-center gap-2 text-muted-foreground">
-              <input ref={fileInputRef} type="file" multiple className="hidden" onChange={(event) => onAttachFiles(event.target.files)} />
+              <input ref={fileInputRef} type="file" accept={fileInputAccept} multiple className="hidden" onChange={(event) => onAttachFiles(event.target.files)} />
               <button type="button" aria-label="Attach files" onClick={() => fileInputRef.current?.click()} className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-foreground/7 hover:text-foreground"><Paperclip className="h-4 w-4" /></button>
               <button type="button" aria-label="Tuning settings" onClick={onOpenSettings} className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-foreground/7 hover:text-foreground"><SlidersHorizontal className="h-4 w-4" /></button>
               <button type="button" aria-label="Voice input" onClick={onStartVoice} className="flex h-9 w-9 items-center justify-center rounded-full hover:bg-foreground/7 hover:text-foreground"><Mic className="h-4 w-4" /></button>
-              <button type="button" aria-label="Send message" disabled={!composerText.trim() || sendingMessage} onClick={onSend} className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--warm-glow)]/35 bg-[var(--warm-glow)]/12 text-[var(--warm-glow)] transition hover:bg-[var(--warm-glow)]/20 disabled:cursor-not-allowed disabled:opacity-45">
+              <button type="button" aria-label="Send message" disabled={(!composerText.trim() && attachments.length === 0) || sendingMessage} onClick={onSend} className="flex h-10 w-10 items-center justify-center rounded-full border border-[var(--warm-glow)]/35 bg-[var(--warm-glow)]/12 text-[var(--warm-glow)] transition hover:bg-[var(--warm-glow)]/20 disabled:cursor-not-allowed disabled:opacity-45">
                 {sendingMessage ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
               </button>
             </div>
@@ -965,7 +1057,7 @@ export default function App() {
   const [recentsTick, setRecentsTick] = useState(0);
   const [defaultModel, setDefaultModelState] = useState<string | null>(() => getDefaultModel());
   const [railCollapsed, setRailCollapsed] = useState(() => typeof window !== "undefined" && window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY) === "true");
-  const [modelPreference] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY) ?? "");
+  const [modelPreference, setModelPreference] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY) ?? "");
   const [showMobileNav, setShowMobileNav] = useState(false);
   const [navUnreadTotal, setNavUnreadTotal] = useState(0);
   const [account, setAccount] = useState<AccountRecord>(DEFAULT_ACCOUNT);
@@ -1001,7 +1093,9 @@ export default function App() {
   const [reasoningLevel, setReasoningLevel] = useState<ReasoningLevel>("Low");
   const [profilesOpen, setProfilesOpen] = useState(false);
   const [reasoningOpen, setReasoningOpen] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
+  const [modelOpen, setModelOpen] = useState(false);
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [attachmentToast, setAttachmentToast] = useState("");
   const tempMessageIdRef = useRef(-1);
   const { send: sendChatStream } = useChatStream();
   const loadBootstrap = useCallback(async (nextAgentId?: string | null, nextConversationId?: string | null) => {
@@ -1109,12 +1203,12 @@ export default function App() {
 
   const selectedAgent = bootstrap?.agents.find((agent) => agent.id === selectedAgentId) ?? null;
   const catalogModels = bootstrap?.catalog.models ?? [];
-  const activeModelPreference = modelPreference || selectedAgent?.preferred_model || defaultModel || catalogModels[0] || "gpt-5.5";
+  const selectedConversation = bootstrap?.conversations.find((conversation) => conversation.id === selectedConversationId) ?? null;
+  const activeModelPreference = selectedConversation?.preferred_model || modelPreference || selectedAgent?.preferred_model || defaultModel || catalogModels[0] || "gpt-5.5";
   void recentsTick;
   const recentsForPicker = getRecentsPadded(catalogModels, defaultModel ?? activeModelPreference);
   const activeProject = projects.find((project) => project.id === activeProjectId && !project.archived) ?? projects.find((project) => !project.archived) ?? null;
   const detailProject = projects.find((project) => project.id === projectDetailId && !project.archived) ?? null;
-  const selectedConversation = bootstrap?.conversations.find((conversation) => conversation.id === selectedConversationId) ?? null;
 
   const openSettingsModels = useCallback(() => {
     setActiveView("settings");
@@ -1137,6 +1231,7 @@ export default function App() {
       setSelectedConversationId(null);
       setComposerText("");
       setChatError("");
+      setAttachments([]);
     }
   };
 
@@ -1269,9 +1364,48 @@ export default function App() {
     await refreshAfterConversationUpdate();
   };
 
+  const showAttachmentToast = (message: string) => {
+    setAttachmentToast(message);
+    window.setTimeout(() => setAttachmentToast((current) => current === message ? "" : current), 2500);
+  };
+
+  const addAttachments = (input: FileList | File[] | null) => {
+    if (!input) return;
+    const incoming = Array.from(input);
+    const media = incoming.filter(isMediaFile);
+    if (incoming.length && media.length !== incoming.length) showAttachmentToast("Only images and videos can be attached");
+    if (!media.length) return;
+    setAttachments((current) => {
+      const availableSlots = MAX_CHAT_ATTACHMENTS - current.length;
+      if (availableSlots <= 0) { showAttachmentToast("Maximum 10 attachments per message"); return current; }
+      const accepted = media.slice(0, availableSlots);
+      if (accepted.length < media.length) showAttachmentToast("Maximum 10 attachments per message");
+      const totalSize = current.reduce((sum, item) => sum + item.file.size, 0) + accepted.reduce((sum, file) => sum + file.size, 0);
+      if (totalSize > MAX_CHAT_ATTACHMENT_BYTES) { showAttachmentToast("Total attachment size exceeds 50 MB"); return current; }
+      return [...current, ...accepted.map((file) => ({ id: `${file.name}-${file.size}-${file.lastModified}-${crypto.randomUUID()}`, file, url: URL.createObjectURL(file), status: "ready" as const }))];
+    });
+  };
+
   const handleAttachFiles = (files: FileList | null) => {
-    if (!files) return;
-    setAttachments(Array.from(files));
+    addAttachments(files);
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments((current) => {
+      const removing = current.find((item) => item.id === id);
+      if (removing) URL.revokeObjectURL(removing.url);
+      return current.filter((item) => item.id !== id);
+    });
+  };
+
+  const handleSelectModel = async (model: string) => {
+    setModelPreference(model);
+    setModelOpen(false);
+    try { window.localStorage.setItem(MODEL_PREFERENCE_STORAGE_KEY, model); } catch { /* ignore */ }
+    if (selectedConversationId) {
+      await api.updateConversation(selectedConversationId, { preferred_model: model });
+      await loadBootstrap(selectedAgentId, selectedConversationId);
+    }
   };
 
   const handleStartVoice = () => {
@@ -1295,6 +1429,7 @@ export default function App() {
   const ensureConversation = async (agent: AgentRecord, projectId: string | null = activeProjectId) => {
     const count = bootstrap?.conversations.filter((conversation) => conversation.agent_id === agent.id).length ?? 0;
     const response = await api.createConversation(agent.id, buildConversationTitle(agent, count), projectId);
+    if (activeModelPreference) await api.updateConversation(response.conversation.id, { preferred_model: activeModelPreference });
     return response.conversation.id;
   };
 
@@ -1324,7 +1459,7 @@ export default function App() {
 
   const handleSendMessage = async () => {
     const content = composerText.trim();
-    if (!content || sendingMessage || !selectedAgent) return;
+    if ((!content && attachments.length === 0) || sendingMessage || !selectedAgent) return;
 
     setSendingMessage(true);
     setChatError("");
@@ -1332,7 +1467,9 @@ export default function App() {
     setMutationNotice("");
     const optimisticUserId = tempMessageIdRef.current--;
     const optimisticAssistantId = tempMessageIdRef.current--;
-    const optimisticUser: ConversationMessage = { id: optimisticUserId, role: "user", content, client_status: "complete" };
+    const optimisticAttachments: ChatAttachment[] = attachments.map((item) => ({ id: item.id, filename: item.file.name, content_type: item.file.type, size: item.file.size, url: item.url, kind: item.file.type.startsWith("video/") ? "video" : "image" }));
+    const pendingFiles = attachments.map((item) => item.file);
+    const optimisticUser: ConversationMessage = { id: optimisticUserId, role: "user", content, attachments: optimisticAttachments, client_status: "complete" };
     const optimisticAssistant: ConversationMessage = { id: optimisticAssistantId, role: "assistant", content: "", client_status: "thinking", tool_events: [] };
     setComposerText("");
     setMessages((current) => [...current, optimisticUser, optimisticAssistant]);
@@ -1342,8 +1479,10 @@ export default function App() {
     try {
       const conversationId = selectedConversation?.id ?? await ensureConversation(selectedAgent, activeProjectId);
       setSelectedConversationId(conversationId);
+      if (activeModelPreference) await api.updateConversation(conversationId, { preferred_model: activeModelPreference });
+      const uploadedAttachments = pendingFiles.length ? (await api.uploadChatAttachments(pendingFiles, conversationId)).attachments : [];
       const result = await sendChatStream(
-        { agent_id: selectedAgent.id, conversation_id: conversationId, message: { role: "user", content } },
+        { agent_id: selectedAgent.id, conversation_id: conversationId, message: { role: "user", content }, attachments: uploadedAttachments, model: activeModelPreference },
         {
           onDelta: (text) => {
             setMessages((current) => current.map((message) => message.id === optimisticAssistantId ? { ...message, content: `${message.content}${text}`, client_status: "streaming" } : message));
@@ -1356,6 +1495,7 @@ export default function App() {
           },
         },
       );
+      if (uploadedAttachments.length) setMessages((current) => current.map((message) => message.id === optimisticUserId ? { ...message, attachments: uploadedAttachments } : message));
       const finalContent = result.reply.content.trim();
       setMessages((current) => current.map((message) => message.id === optimisticAssistantId
         ? finalContent || message.content
@@ -1363,6 +1503,7 @@ export default function App() {
           : { ...message, content: "", client_status: "error", error_message: "Stream completed without assistant content." }
         : message));
       await loadBootstrap(selectedAgent.id, conversationId);
+      attachments.forEach((item) => URL.revokeObjectURL(item.url));
       setAttachments([]);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to send message.";
@@ -1525,6 +1666,9 @@ export default function App() {
                 activeProject={activeProject}
                 reasoningLevel={reasoningLevel}
                 attachments={attachments}
+                attachmentToast={attachmentToast}
+                modelOpen={modelOpen}
+                availableModels={catalogModels}
                 profilesOpen={profilesOpen}
                 reasoningOpen={reasoningOpen}
                 onComposerChange={setComposerText}
@@ -1537,9 +1681,15 @@ export default function App() {
                   setComposerText("");
                   setActiveView("new-chat");
                 }}
-                onToggleProfiles={() => { setProfilesOpen((value) => !value); setReasoningOpen(false); }}
-                onToggleReasoning={() => { setReasoningOpen((value) => !value); setProfilesOpen(false); }}
+                onToggleProfiles={() => { setProfilesOpen((value) => !value); setReasoningOpen(false); setModelOpen(false); }}
+                onToggleReasoning={() => { setReasoningOpen((value) => !value); setProfilesOpen(false); setModelOpen(false); }}
                 onSelectReasoning={(level) => { setReasoningLevel(level); setReasoningOpen(false); }}
+                onToggleModel={() => { setModelOpen((value) => !value); setProfilesOpen(false); setReasoningOpen(false); }}
+                onSelectModel={(model) => void handleSelectModel(model)}
+                onRemoveAttachment={handleRemoveAttachment}
+                onDropFiles={addAttachments}
+                onPasteFiles={addAttachments}
+                onRejectAttachment={showAttachmentToast}
                 onOpenSettings={openSettingsModels}
                 onAttachFiles={handleAttachFiles}
                 onStartVoice={handleStartVoice}

@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from "react";
-import type { AgentRecord, BootstrapResponse, InlineToolEvent } from "@/lib/types";
+import type { AgentRecord, BootstrapResponse, ChatAttachment, InlineToolEvent } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -12,6 +12,8 @@ type StreamRequest = {
   agent_id: string;
   conversation_id: string;
   message: { role: "user"; content: string };
+  attachments?: ChatAttachment[];
+  model?: string;
 };
 
 type StreamResult = {

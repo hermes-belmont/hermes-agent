@@ -14,6 +14,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import mimetypes
 import logging
 import os
 import platform
@@ -68,6 +69,7 @@ MISSION_CONTROL_DIST = (
 )
 MISSION_CONTROL_HOME = get_hermes_home() / "mission_control"
 MISSION_CONTROL_STATE_PATH = MISSION_CONTROL_HOME / "state.json"
+MISSION_CONTROL_UPLOAD_DIR = MISSION_CONTROL_HOME / "uploads"
 USER_BACKGROUND_DIR = get_hermes_home() / "user-content" / "backgrounds"
 RUNTIME_DIR = get_hermes_home() / "runtime"
 USER_DUMP_DIR = RUNTIME_DIR / "dumps"
@@ -118,6 +120,8 @@ AVATAR_IMAGE_RE = re.compile(r"^data:image/(png|jpeg|webp);base64,([A-Za-z0-9+/=
 MAX_AVATAR_IMAGE_BYTES = 300 * 1024
 
 app = FastAPI(title="Hermes Mission Control", version=__version__)
+MISSION_CONTROL_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/mission-control/uploads", StaticFiles(directory=str(MISSION_CONTROL_UPLOAD_DIR)), name="mission_control_uploads")
 app.add_middleware(
     CORSMiddleware,
     allow_origin_regex=ALLOWED_ORIGIN_REGEX,
@@ -1827,6 +1831,7 @@ def _normalize_conversation_payload(payload: dict[str, Any], existing: dict[str,
         "last_error": payload.get("last_error", base.get("last_error", "")),
         "usage_summary": _normalize_usage_summary_payload(payload.get("usage_summary"), base.get("usage_summary")),
         "usage_diagnostics": deepcopy(payload.get("usage_diagnostics") or base.get("usage_diagnostics") or {}),
+        "preferred_model": payload.get("preferred_model", base.get("preferred_model")),
     }
 
 
@@ -2293,6 +2298,7 @@ class ConversationCreateRequest(BaseModel):
     title: Optional[str] = None
     project_id: Optional[str] = None
     projectId: Optional[str] = None
+    preferred_model: Optional[str] = None
 
 
 class ConversationUpdateRequest(BaseModel):
@@ -2302,6 +2308,7 @@ class ConversationUpdateRequest(BaseModel):
     agent_id: Optional[str] = None
     project_id: Optional[str] = None
     projectId: Optional[str] = None
+    preferred_model: Optional[str] = None
 
 
 class ChatMessage(BaseModel):
@@ -2309,16 +2316,112 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatAttachmentRef(BaseModel):
+    id: str
+    filename: str
+    content_type: str
+    size: int
+    url: str
+    kind: str
+
+
+class ChatAttachmentUpload(BaseModel):
+    filename: str
+    content_type: str
+    data: str
+
+
+class ChatAttachmentUploadRequest(BaseModel):
+    conversation_id: str = "pending"
+    files: list[ChatAttachmentUpload]
+
+
 class MissionChatRequest(BaseModel):
     agent_id: str
     conversation_id: Optional[str] = None
     message: ChatMessage
+    attachments: list[ChatAttachmentRef] = Field(default_factory=list)
+    model: Optional[str] = None
 
 
 class ConversationMessagesResponse(BaseModel):
     conversation_id: str
     messages: list[dict[str, Any]]
 
+
+
+ALLOWED_CHAT_ATTACHMENT_PREFIXES = ("image/", "video/")
+MAX_CHAT_ATTACHMENTS = 10
+MAX_CHAT_ATTACHMENT_TOTAL_BYTES = 50 * 1024 * 1024
+
+def _safe_upload_name(name: str | None) -> str:
+    raw = Path(name or "attachment").name
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._")
+    return cleaned[:120] or "attachment"
+
+def _upload_ref_from_path(path: Path, conversation_id: str, original_name: str, content_type: str) -> dict[str, Any]:
+    stat = path.stat()
+    rel = path.relative_to(MISSION_CONTROL_UPLOAD_DIR).as_posix()
+    kind = "video" if content_type.startswith("video/") else "image"
+    return {
+        "id": path.stem,
+        "filename": original_name,
+        "content_type": content_type,
+        "size": stat.st_size,
+        "url": f"/mission-control/uploads/{rel}",
+        "kind": kind,
+    }
+
+def _store_message_attachments(state: dict[str, Any], session_id: str, message_id: Any, refs: list[dict[str, Any]]) -> None:
+    if not refs or not session_id or message_id is None:
+        return
+    store = state.setdefault("message_attachments", {})
+    session_store = store.setdefault(str(session_id), {})
+    session_store[str(message_id)] = [dict(ref) for ref in refs]
+
+def _attachments_for_message(state: dict[str, Any], session_id: str, message_id: Any) -> list[dict[str, Any]]:
+    return list(((state.get("message_attachments") or {}).get(str(session_id)) or {}).get(str(message_id)) or [])
+
+def _attachment_context_text(refs: list[ChatAttachmentRef]) -> str:
+    if not refs:
+        return ""
+    lines = ["Attached image/video files for this user message:"]
+    for ref in refs:
+        lines.append(f"- {ref.filename} ({ref.content_type}, {ref.size} bytes): {ref.url}")
+    return "\n" + "\n".join(lines)
+
+
+@app.get("/api/mission-control/models")
+async def mission_control_models() -> dict[str, Any]:
+    return {"models": _catalog_model_options()}
+
+@app.post("/api/mission-control/uploads")
+async def upload_chat_attachments(body: ChatAttachmentUploadRequest) -> dict[str, Any]:
+    if len(body.files) > MAX_CHAT_ATTACHMENTS:
+        raise HTTPException(status_code=413, detail="Maximum 10 attachments")
+    target_id = _safe_upload_name(body.conversation_id or "pending")
+    target_dir = MISSION_CONTROL_UPLOAD_DIR / target_id
+    target_dir.mkdir(parents=True, exist_ok=True)
+    refs: list[dict[str, Any]] = []
+    total = 0
+    for upload in body.files:
+        content_type = (upload.content_type or mimetypes.guess_type(upload.filename or "")[0] or "").lower()
+        if not any(content_type.startswith(prefix) for prefix in ALLOWED_CHAT_ATTACHMENT_PREFIXES):
+            continue
+        raw_data = upload.data.split(",", 1)[1] if upload.data.startswith("data:") and "," in upload.data else upload.data
+        try:
+            data = base64.b64decode(raw_data, validate=True)
+        except Exception as exc:
+            raise HTTPException(status_code=400, detail="Invalid attachment data") from exc
+        total += len(data)
+        if total > MAX_CHAT_ATTACHMENT_TOTAL_BYTES:
+            raise HTTPException(status_code=413, detail="Total attachment size exceeds 50 MB")
+        safe_name = _safe_upload_name(upload.filename)
+        unique = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}_{uuid.uuid4().hex[:8]}_{safe_name}"
+        path = target_dir / unique
+        path.write_bytes(data)
+        refs.append(_upload_ref_from_path(path, target_id, safe_name, content_type))
+    return {"attachments": refs}
 
 @app.get("/api/mission-control/health")
 async def health() -> dict[str, Any]:
@@ -3181,7 +3284,7 @@ async def create_conversation(body: ConversationCreateRequest) -> dict[str, Any]
     state = _load_state()
     if not any(agent["id"] == body.agent_id for agent in state["agents"]):
         raise HTTPException(status_code=404, detail="Agent not found")
-    conversation = _normalize_conversation_payload({"agent_id": body.agent_id, "title": body.title or "New conversation", "project_id": body.project_id, "projectId": body.projectId})
+    conversation = _normalize_conversation_payload({"agent_id": body.agent_id, "title": body.title or "New conversation", "project_id": body.project_id, "projectId": body.projectId, "preferred_model": body.preferred_model})
     state["conversations"].append(conversation)
     _audit(state, "conversation.created", {"conversation_id": conversation["id"], "agent_id": body.agent_id})
     _save_state(state)
@@ -3214,6 +3317,7 @@ async def update_conversation(conversation_id: str, body: ConversationUpdateRequ
         "last_message_at": existing.get("last_message_at"),
         "last_run_status": existing.get("last_run_status", "idle"),
         "last_error": existing.get("last_error", ""),
+        "preferred_model": body.preferred_model if body.preferred_model is not None else existing.get("preferred_model"),
     }
     state["conversations"][idx] = _normalize_conversation_payload(payload, existing)
     _audit(state, "conversation.updated", {"conversation_id": conversation_id})
@@ -3266,6 +3370,7 @@ async def get_conversation_messages(conversation_id: str) -> ConversationMessage
                 "tool_name": row.get("tool_name"),
                 "tool_calls": row.get("tool_calls") or [],
                 "finish_reason": row.get("finish_reason"),
+                "attachments": _attachments_for_message(state, session_id, row.get("id")),
             }
         )
     return ConversationMessagesResponse(conversation_id=conversation_id, messages=messages)
@@ -3325,7 +3430,7 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
             max_tokens = _as_int(agent.get("token_controls", {}).get("max_output_tokens"), 0) or None
             runtime_agent = AIAgent(
                 session_id=prior_session_id,
-                model=agent.get("preferred_model") or _default_model(),
+                model=req.model or active_conversation.get("preferred_model") or agent.get("preferred_model") or _default_model(),
                 quiet_mode=True,
                 enabled_toolsets=enabled_toolsets,
                 max_tokens=max_tokens,
@@ -3338,7 +3443,7 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
             )
             result = runtime_agent.run_conversation(
                 user_message=req.message.content,
-                system_message=_build_system_prompt(agent),
+                system_message=_build_system_prompt(agent) + _attachment_context_text(req.attachments),
             )
             reply_text = str(result.get("final_response") or "")
             run_failed = bool(result.get("failed") or result.get("error"))
@@ -3386,6 +3491,11 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
             if reply_text and resolved_session_id:
                 try:
                     existing = db.get_messages(resolved_session_id)
+                    if req.attachments:
+                        for candidate in reversed(existing):
+                            if candidate.get("role") == "user" and (candidate.get("content") or "").startswith(req.message.content):
+                                _store_message_attachments(state, resolved_session_id, candidate.get("id"), [ref.model_dump() for ref in req.attachments])
+                                break
                     last = existing[-1] if existing else None
                     needs_write = not last or last.get("role") != "assistant" or (last.get("content") or "") != reply_text
                     if needs_write:
@@ -3458,6 +3568,7 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
                         "last_error": "",
                         "usage_summary": usage_summary,
                         "usage_diagnostics": usage_diagnostics,
+                        "preferred_model": req.model or item.get("preferred_model") or agent.get("preferred_model"),
                     },
                     item,
                 )
@@ -3562,6 +3673,7 @@ async def chat_stream(req: MissionChatRequest):
                 "title": _derive_title(req.message.content, fallback=f"{agent['name']} chat"),
                 "pinned": False,
                 "last_run_status": "running",
+                "preferred_model": req.model or agent.get("preferred_model"),
             }
         )
         state["conversations"].append(conversation)

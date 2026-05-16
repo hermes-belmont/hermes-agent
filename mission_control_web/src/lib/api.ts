@@ -2,7 +2,7 @@ import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResu
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
-import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts } from "@/lib/types";
+import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts, ChatAttachment } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -177,6 +177,19 @@ export const api = {
   },
   deleteUserBackground: (id: string) =>
     fetchJSON<{ ok: boolean }>(`/api/user-content/backgrounds/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  uploadChatAttachments: async (files: File[], conversationId = "pending") => {
+    const encoded = await Promise.all(files.map((file) => new Promise<{ filename: string; content_type: string; data: string }>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve({ filename: file.name, content_type: file.type, data: String(reader.result ?? "") });
+      reader.onerror = () => reject(reader.error ?? new Error("Failed to read attachment"));
+      reader.readAsDataURL(file);
+    })));
+    return fetchJSON<{ attachments: ChatAttachment[] }>("/api/mission-control/uploads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversation_id: conversationId, files: encoded }),
+    });
+  },
   getConversationMessages: (conversationId: string) =>
     fetchJSON<{ conversation_id: string; messages: ConversationMessage[] }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}/messages`),
   createConversation: (agentId: string, title?: string, projectId?: string | null) =>
@@ -185,7 +198,7 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent_id: agentId, title, project_id: projectId ?? null }),
     }),
-  updateConversation: (conversationId: string, patch: { title?: string; pinned?: boolean; starred?: boolean; agent_id?: string; project_id?: string | null; projectId?: string | null }) =>
+  updateConversation: (conversationId: string, patch: { title?: string; pinned?: boolean; starred?: boolean; agent_id?: string; project_id?: string | null; projectId?: string | null; preferred_model?: string | null }) =>
     fetchJSON<{ conversation: { id: string; title: string; pinned: boolean; starred?: boolean; project_id?: string | null } }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -196,7 +209,7 @@ export const api = {
       method: "DELETE",
     }),
   sendChatStream: async (
-    body: { agent_id: string; conversation_id: string; message: { role: "user"; content: string } },
+    body: { agent_id: string; conversation_id: string; message: { role: "user"; content: string }; attachments?: ChatAttachment[]; model?: string },
     handlers: { onDelta?: (text: string) => void; onStatus?: (status: string) => void } = {},
   ): Promise<{
     conversation_id: string;

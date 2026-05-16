@@ -178,6 +178,7 @@ export interface ConversationRecord {
   last_message_at?: string | null;
   last_run_status: string;
   last_error: string;
+  preferred_model?: string | null;
   usage_summary: UsageSummary;
   usage_diagnostics?: UsageDiagnostics;
   provider_capabilities?: ProviderCapabilities;
@@ -396,11 +397,21 @@ export interface ReactiveSweepStats {
   queue_size: number;
 }
 
+export interface ChatAttachment {
+  id: string;
+  filename: string;
+  content_type: string;
+  size: number;
+  url: string;
+  kind: "image" | "video" | string;
+}
+
 export interface ConversationMessage {
   id: number;
   role: "user" | "assistant" | "system" | "tool";
   content: string;
   timestamp?: number;
+  attachments?: ChatAttachment[];
   tool_name?: string | null;
   tool_calls?: Array<{ id?: string; function?: { name?: string; arguments?: string } }>;
   finish_reason?: string | null;
