@@ -18,6 +18,7 @@ import mimetypes
 import logging
 import os
 import platform
+import plistlib
 import queue
 import re
 import secrets
@@ -177,6 +178,10 @@ async def auth_middleware(request: Request, call_next):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def _utc_now_z() -> str:
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 
@@ -454,6 +459,154 @@ def _repo_update_status(cwd: Path) -> dict[str, Any]:
     if fetch_code != 0 and fetch_err:
         payload["error"] = fetch_err
     return payload
+
+
+def _short_sha(value: str | None) -> str | None:
+    if not value:
+        return None
+    return value.strip()[:8] or None
+
+
+def _latest_version_from_tags(cwd: Path) -> str | None:
+    return __version__
+
+
+def _maintenance_hermes_status(cwd: Path = PROJECT_ROOT) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "current_version": __version__,
+        "latest_version": None,
+        "commits_behind": None,
+        "carried_commits_ahead": None,
+        "upstream_sha": None,
+        "local_sha": None,
+        "branch": None,
+        "checked_at": _utc_now_z(),
+        "status": "unknown",
+    }
+    try:
+        _, local_sha, _ = _run_git(["rev-parse", "--short=8", "HEAD"], cwd, timeout=1.0)
+        _, branch, _ = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd, timeout=1.0)
+        payload["local_sha"] = _short_sha(local_sha)
+        payload["branch"] = branch or None
+
+        fetch_code, _, _ = _run_git(["fetch", "origin", "--tags"], cwd, timeout=5.0)
+        if fetch_code != 0:
+            return payload
+
+        payload["latest_version"] = _latest_version_from_tags(cwd)
+        _, upstream_sha, _ = _run_git(["rev-parse", "--short=8", "origin/main"], cwd, timeout=1.0)
+        payload["upstream_sha"] = _short_sha(upstream_sha)
+
+        count_code, counts, _ = _run_git(["rev-list", "--left-right", "--count", "HEAD...origin/main"], cwd, timeout=2.0)
+        if count_code != 0 or not counts:
+            return payload
+        parts = counts.split()
+        if len(parts) != 2:
+            return payload
+        ahead = int(parts[0])
+        behind = int(parts[1])
+        payload["carried_commits_ahead"] = ahead
+        payload["commits_behind"] = behind
+        if behind == 0 and ahead == 0:
+            payload["status"] = "up_to_date"
+        elif behind > 0 and ahead == 0:
+            payload["status"] = "behind"
+        elif behind == 0 and ahead > 0:
+            payload["status"] = "ahead"
+        else:
+            payload["status"] = "diverged"
+    except Exception:
+        payload["status"] = "unknown"
+    return payload
+
+
+def _launchctl_labels() -> list[str]:
+    try:
+        result = subprocess.run(["launchctl", "list"], capture_output=True, text=True, timeout=1.5, check=False)
+    except Exception:
+        return []
+    labels: list[str] = []
+    for line in result.stdout.splitlines()[1:]:
+        parts = line.split()
+        if parts:
+            labels.append(parts[-1])
+    return labels
+
+
+def _label_from_plist(path: Path) -> str | None:
+    try:
+        data = plistlib.loads(path.read_bytes())
+        label = data.get("Label")
+        return str(label) if label else None
+    except Exception:
+        text = path.read_text(encoding="utf-8", errors="ignore")
+        match = re.search(r"<key>Label</key>\s*<string>([^<]+)</string>", text)
+        return match.group(1) if match else None
+
+
+def _find_gateway_plist_by_port() -> tuple[str | None, Path | None]:
+    roots = [Path.home() / "Library" / "LaunchAgents", Path("/Library/LaunchAgents")]
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.plist")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            if "9119" not in text:
+                continue
+            label = _label_from_plist(path)
+            if label and label.startswith("com.hermes."):
+                return label, path
+    return None, None
+
+
+def _hermes_gateway_restart_supported() -> bool:
+    hermes_path = shutil.which("hermes")
+    if not hermes_path:
+        return False
+    try:
+        result = subprocess.run([hermes_path, "gateway", "--help"], capture_output=True, text=True, timeout=1.5, check=False)
+    except Exception:
+        return False
+    return result.returncode == 0 and "restart" in f"{result.stdout}\n{result.stderr}"
+
+
+def _operation_restart_gateway() -> dict[str, Any]:
+    initiated_at = _utc_now_z()
+    if platform.system() == "Darwin":
+        labels = _launchctl_labels()
+        label = next((item for item in labels if re.fullmatch(r"com\.hermes\.gateway.*", item)), None)
+        plist_path: Path | None = None
+        if not label and "ai.hermes.gateway" in labels:
+            label = "ai.hermes.gateway"
+        if not label:
+            label, plist_path = _find_gateway_plist_by_port()
+        if label:
+            uid = os.getuid()
+            ok, log = _run_operation_command(["launchctl", "kickstart", "-k", f"gui/{uid}/{label}"], Path.home(), timeout=4.0)
+            if ok:
+                _audit_maintenance_action("restart-gateway", snapshot=None, ok=True, log=log)
+                return {"ok": True, "method": "launchctl_kickstart", "label": label, "initiated_at": initiated_at}
+            if plist_path:
+                boot = subprocess.run(["launchctl", "bootout", f"gui/{uid}", str(plist_path)], capture_output=True, text=True, timeout=2.0, check=False)
+                boot_log = f"{boot.stdout}\n{boot.stderr}".strip()
+                load = subprocess.run(["launchctl", "bootstrap", f"gui/{uid}", str(plist_path)], capture_output=True, text=True, timeout=2.0, check=False)
+                load_log = f"{load.stdout}\n{load.stderr}".strip()
+                if load.returncode == 0:
+                    log = f"{boot_log}\n{load_log}".strip()
+                    _audit_maintenance_action("restart-gateway", snapshot=None, ok=True, log=log)
+                    return {"ok": True, "method": "launchctl_reload", "label": label, "initiated_at": initiated_at}
+    if _hermes_gateway_restart_supported():
+        hermes_path = shutil.which("hermes") or "hermes"
+        ok, log = _run_operation_command([hermes_path, "gateway", "restart"], Path.home(), timeout=4.0)
+        if ok:
+            _audit_maintenance_action("restart-gateway", snapshot=None, ok=True, log=log)
+            return {"ok": True, "method": "hermes_cli", "label": None, "initiated_at": initiated_at}
+    log = "Restart not supported in this environment"
+    _audit_maintenance_action("restart-gateway", snapshot=None, ok=False, log=log)
+    return {"ok": False, "reason": log}
 
 
 def _maintenance_health_check() -> dict[str, Any]:
@@ -2632,6 +2785,19 @@ async def maintenance_check_updates() -> dict[str, Any]:
         "hermes_agent": dict(status),
         "checked_at": _utc_now_iso(),
     }
+
+
+@app.get("/api/mission-control/maintenance/hermes-status")
+async def mission_control_maintenance_hermes_status() -> dict[str, Any]:
+    return await asyncio.to_thread(_maintenance_hermes_status, PROJECT_ROOT)
+
+
+@app.post("/api/mission-control/maintenance/restart-gateway")
+async def mission_control_maintenance_restart_gateway() -> JSONResponse:
+    payload = await asyncio.to_thread(_operation_restart_gateway)
+    if not payload.get("ok"):
+        return JSONResponse(status_code=501, content=payload)
+    return JSONResponse(content=payload)
 
 
 @app.post("/api/maintenance/doctor")

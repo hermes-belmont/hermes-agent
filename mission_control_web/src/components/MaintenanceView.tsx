@@ -4,12 +4,13 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import type { RiskLevel } from "@/lib/confirm-action";
-import { formatFileSize, updateSummary, type BackupResult, type DestructiveMaintenanceResult, type DoctorResult, type DumpResult, type GitCommitOption, type HealthCheckResult, type MaintenanceVersion, type UpdateCheckResult } from "@/lib/maintenance";
+import { formatFileSize, updateSummary, type BackupResult, type DestructiveMaintenanceResult, type DoctorResult, type DumpResult, type GitCommitOption, type HealthCheckResult, type HermesStatus, type MaintenanceVersion, type UpdateCheckResult } from "@/lib/maintenance";
 
 type ActionKey = "health" | "updates" | "doctor" | "dump" | "backup";
-type DestructiveKey = "restart" | "updateAll" | "rollback" | "autoFix" | "updateHermes" | "import";
+type DestructiveKey = "restart" | "updateAll" | "rollback" | "autoFix" | "updateHermes" | "restartGateway" | "import";
 type ResultState = { health?: HealthCheckResult; updates?: UpdateCheckResult; doctor?: DoctorResult; dump?: DumpResult; backup?: BackupResult };
 type ErrorState = Partial<Record<ActionKey | "version", string>>;
+type GatewayRestartState = "idle" | "restarting" | "success" | "timeout" | "error";
 
 type ModalState = { key: DestructiveKey; title: string; body: ReactNode; confirmLabel: string; riskLevel: RiskLevel; requirePhrase?: string } | null;
 
@@ -17,8 +18,11 @@ function Card({ title, icon: Icon, body, children, result }: { title: string; ic
   return <article className="rounded-[28px] border border-foreground/10 bg-background/58 p-5 shadow-[0_18px_60px_rgba(0,0,0,0.18)] backdrop-blur-xl"><div className="mb-4 flex items-start justify-between gap-3"><div><p className="text-[10px] uppercase tracking-[0.24em] text-foreground/70">{title}</p><div className="mt-3 text-sm text-foreground/75">{body}</div></div><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-foreground/10 bg-foreground/5 text-[color:var(--warm-glow)]"><Icon className="h-4 w-4" /></span></div><div className="flex flex-wrap gap-2">{children}</div>{result ? <div className="mt-4">{result}</div> : null}</article>;
 }
 
-function ActionButton({ children, onClick, loading = false, disabled = false, title }: { children: ReactNode; onClick?: () => void; loading?: boolean; disabled?: boolean; title?: string }) {
-  return <button type="button" onClick={onClick} disabled={disabled || loading} title={title} className="inline-flex items-center gap-2 rounded-full border border-foreground/15 bg-background/60 px-3.5 py-2 text-[11px] uppercase tracking-[0.16em] text-foreground/85 transition hover:border-[color:var(--warm-glow)] hover:text-[color:var(--warm-glow)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-foreground/15 disabled:hover:text-foreground/85">{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}{children}</button>;
+function ActionButton({ children, onClick, loading = false, disabled = false, title, variant = "default" }: { children: ReactNode; onClick?: () => void; loading?: boolean; disabled?: boolean; title?: string; variant?: "default" | "warning" }) {
+  const classes = variant === "warning"
+    ? "border-[#ffbd38]/45 bg-[#ffbd38]/8 text-[#ffbd38] hover:border-[#ffbd38]/70 hover:bg-[#ffbd38]/14 hover:text-[#ffbd38] disabled:hover:border-[#ffbd38]/45 disabled:hover:text-[#ffbd38]"
+    : "border-foreground/15 bg-background/60 text-foreground/85 hover:border-[color:var(--warm-glow)] hover:text-[color:var(--warm-glow)] disabled:hover:border-foreground/15 disabled:hover:text-foreground/85";
+  return <button type="button" onClick={onClick} disabled={disabled || loading} title={title} className={cn("inline-flex items-center gap-2 rounded-full border px-3.5 py-2 text-[11px] uppercase tracking-[0.16em] transition disabled:cursor-not-allowed disabled:opacity-45", classes)}>{loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}{children}</button>;
 }
 
 function ErrorPanel({ message }: { message?: string }) {
@@ -26,6 +30,22 @@ function ErrorPanel({ message }: { message?: string }) {
   return <div className="rounded-2xl border border-[#ffbd38]/30 bg-[#ffbd38]/10 px-3 py-2 text-xs text-[#ffbd38]">{message}</div>;
 }
 function StatusDot({ ok }: { ok: boolean }) { return <span className={cn("h-2 w-2 rounded-full", ok ? "bg-emerald-400" : "bg-red-500")} />; }
+
+function formatClock(value: Date = new Date()): string {
+  return value.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
+function StatusLine({ status }: { status: HermesStatus | null }) {
+  if (!status || status.status === "unknown") return <div className="text-xs text-foreground/55">Status unavailable</div>;
+  if (status.status === "up_to_date") return <div><span className="inline-flex rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-emerald-400">Up to date</span></div>;
+  if (status.status === "behind") return <div className="text-xs text-[#ffbd38]">{status.commits_behind ?? 0} commits behind upstream</div>;
+  if (status.status === "ahead") return <div className="text-xs text-foreground/55">+{status.carried_commits_ahead ?? 0} local commits ahead</div>;
+  return <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-[#ffbd38]"><span>{status.commits_behind ?? 0} behind upstream</span><span>+{status.carried_commits_ahead ?? 0} local commits ahead</span></div>;
+}
+
+function HermesStatusBlock({ status }: { status: HermesStatus | null }) {
+  return <div className="mt-2 space-y-1"><StatusLine status={status} /><div className="text-[11px] text-foreground/45">upstream {status?.upstream_sha ?? "unknown"} / local {status?.local_sha ?? "unknown"}</div></div>;
+}
 
 function HealthResult({ result }: { result: HealthCheckResult }) {
   return <details open className="rounded-2xl border border-foreground/10 bg-background/50 p-3"><summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-foreground/70">{result.ok ? "All checks passing" : "Checks need attention"}</summary><div className="mt-3 space-y-2">{result.checks.map((check) => <div key={check.endpoint} className="flex items-start justify-between gap-3 rounded-xl bg-foreground/5 px-3 py-2 text-xs text-foreground/80"><span className="flex min-w-0 items-center gap-2"><StatusDot ok={check.status >= 200 && check.status < 300} /><span className="truncate">{check.endpoint}</span></span><span className="shrink-0 text-foreground/70">{check.status || "ERR"} · {check.latency_ms}ms</span>{check.error ? <span className="basis-full text-[#ffbd38]">{check.error}</span> : null}</div>)}</div></details>;
@@ -67,7 +87,7 @@ function AutoFixResult({ result }: { result?: DestructiveMaintenanceResult }) {
 }
 function RestartOverlay({ label }: { label?: string }) {
   if (!label) return null;
-  return <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-black/70 text-foreground backdrop-blur-md"><Loader2 className="mb-4 h-8 w-8 animate-spin text-[color:var(--warm-glow)]" /><div className="text-xl font-light">{label}</div><div className="mt-2 text-sm text-foreground/65">Waiting for Mission Control to return…</div></div>;
+  return <div className="fixed inset-0 z-40 flex flex-col items-center justify-center bg-black/70 text-foreground backdrop-blur-md"><Loader2 className="mb-4 h-8 w-8 animate-spin text-[color:var(--warm-glow)]" /><div className="text-xl font-light">{label}</div><div className="mt-2 text-sm text-foreground/65">Waiting for Mission Control to return...</div></div>;
 }
 
 async function waitForRoot() {
@@ -75,6 +95,18 @@ async function waitForRoot() {
     try { const response = await fetch("/", { cache: "no-store" }); if (response.ok) return; } catch { /* retry */ }
     await new Promise((resolve) => window.setTimeout(resolve, 1000));
   }
+}
+
+async function pollGatewayEnv(): Promise<boolean> {
+  const deadline = Date.now() + 12000;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch("http://localhost:9119/env", { cache: "no-store" });
+      if (response.ok) return true;
+    } catch { /* retry */ }
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+  return false;
 }
 
 export function MaintenanceView() {
@@ -85,12 +117,37 @@ export function MaintenanceView() {
   const [loading, setLoading] = useState<Partial<Record<ActionKey, boolean>>>({});
   const [destructiveLoading, setDestructiveLoading] = useState<DestructiveKey | null>(null);
   const [results, setResults] = useState<ResultState>({});
-  const [destructiveResults, setDestructiveResults] = useState<Partial<Record<DestructiveKey, DestructiveMaintenanceResult>>>({});
+  const [destructiveResults, setDestructiveResults] = useState<Partial<Record<Exclude<DestructiveKey, "restartGateway">, DestructiveMaintenanceResult>>>({});
   const [errors, setErrors] = useState<ErrorState>({});
   const [modal, setModal] = useState<ModalState>(null);
   const [restartOverlay, setRestartOverlay] = useState<string | undefined>();
+  const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
+  const [hermesChecking, setHermesChecking] = useState(false);
+  const [hermesLastChecked, setHermesLastChecked] = useState<string | null>(null);
+  const [hermesCheckFailed, setHermesCheckFailed] = useState(false);
+  const [gatewayRestartState, setGatewayRestartState] = useState<GatewayRestartState>("idle");
+  const [gatewayRespondedAt, setGatewayRespondedAt] = useState<string | null>(null);
 
-  useEffect(() => { void api.getMaintenanceVersion().then(setVersion).catch((error: unknown) => setErrors((current) => ({ ...current, version: error instanceof Error ? error.message : "Could not load version" }))); void api.getMissionControlCommits().then((payload) => { setCommits(payload.commits); if (payload.commits[1]) setSelectedCommit(payload.commits[1].hash); }).catch(() => undefined); }, []);
+  const checkHermesStatus = useCallback(async () => {
+    setHermesChecking(true);
+    setHermesCheckFailed(false);
+    try {
+      const payload = await api.getHermesMaintenanceStatus();
+      setHermesStatus(payload);
+      setHermesLastChecked(formatClock());
+    } catch {
+      setHermesCheckFailed(true);
+    } finally {
+      setHermesChecking(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void api.getMaintenanceVersion().then(setVersion).catch((error: unknown) => setErrors((current) => ({ ...current, version: error instanceof Error ? error.message : "Could not load version" })));
+    void api.getMissionControlCommits().then((payload) => { setCommits(payload.commits); if (payload.commits[1]) setSelectedCommit(payload.commits[1].hash); }).catch(() => undefined);
+  }, []);
+
+  useEffect(() => { void checkHermesStatus(); }, [checkHermesStatus]);
 
   const runAction = useCallback(async <K extends ActionKey>(key: K, fn: () => Promise<NonNullable<ResultState[K]>>) => {
     if (loading[key]) return;
@@ -99,13 +156,30 @@ export function MaintenanceView() {
   }, [loading]);
 
   const destructiveDisabled = Boolean(destructiveLoading);
+  const gatewayBusy = gatewayRestartState === "restarting";
+  const hermesButtonsDisabled = destructiveDisabled || gatewayBusy;
   const updateCount = results.updates?.mission_control.behind_by ?? 0;
   const updateBranch = version?.mission_control.branch ?? "current branch";
-  const versionBody = version ? <span>Version {version.mission_control.version} <span className="text-foreground/45">Commit</span> {version.mission_control.commit} <span className="text-foreground/45">Branch</span> {version.mission_control.branch}</span> : <span>{errors.version ? "Version unavailable" : "Loading version…"}</span>;
+  const versionBody = version ? <span>Version {version.mission_control.version} <span className="text-foreground/45">Commit</span> {version.mission_control.commit} <span className="text-foreground/45">Branch</span> {version.mission_control.branch}</span> : <span>{errors.version ? "Version unavailable" : "Loading version..."}</span>;
+  const hermesBody = <><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span>{version ? `Version ${version.hermes_agent.version}` : "Loading version..."}</span><a href="https://github.com/NousResearch/hermes-agent/releases" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-foreground/60 underline-offset-4 transition hover:text-[var(--warm-glow)] hover:underline">View releases <ExternalLink className="h-3 w-3" /></a></div><HermesStatusBlock status={hermesStatus} /></>;
+
+  const runGatewayRestart = async () => {
+    setGatewayRestartState("restarting");
+    setGatewayRespondedAt(null);
+    await api.restartGatewayMaintenance();
+    const ok = await pollGatewayEnv();
+    if (ok) {
+      setGatewayRespondedAt(formatClock());
+      setGatewayRestartState("success");
+    } else {
+      setGatewayRestartState("timeout");
+    }
+  };
 
   const runDestructive = async (key: DestructiveKey) => {
     setDestructiveLoading(key);
     try {
+      if (key === "restartGateway") { await runGatewayRestart(); return; }
       let payload: DestructiveMaintenanceResult;
       if (key === "restart") { setRestartOverlay("Restarting Mission Control..."); payload = await api.restartMissionControl(); await waitForRoot(); setRestartOverlay(undefined); }
       else if (key === "updateAll") { payload = await api.updateAllMaintenance(); await waitForRoot(); }
@@ -119,16 +193,28 @@ export function MaintenanceView() {
       setDestructiveResults((current) => ({ ...current, [key]: payload }));
     } catch (error) {
       setRestartOverlay(undefined);
-      setDestructiveResults((current) => ({ ...current, [key]: { ok: false, message: "Action failed", error: error instanceof Error ? error.message : "Action failed" } }));
+      if (key === "restartGateway") setGatewayRestartState("error");
+      else setDestructiveResults((current) => ({ ...current, [key]: { ok: false, message: "Action failed", error: error instanceof Error ? error.message : "Action failed" } }));
     } finally { setDestructiveLoading(null); setModal(null); }
   };
 
+  const gatewayStatusLine = gatewayRestartState === "restarting"
+    ? "Restarting gateway..."
+    : gatewayRestartState === "success" && gatewayRespondedAt
+      ? `Gateway responded at ${gatewayRespondedAt}`
+      : gatewayRestartState === "timeout"
+        ? "Gateway did not respond within 12s. Check launchctl manually."
+        : gatewayRestartState === "error"
+          ? "Gateway restart failed. Check launchctl manually."
+          : null;
+
   const modalFor = (key: DestructiveKey): ModalState => {
-    if (key === "restart") return { key, title: "Restart HCI", body: "This will briefly take Mission Control offline (≈5 seconds). In-flight requests will fail. Continue?", confirmLabel: "Restart HCI", riskLevel: "low" };
+    if (key === "restart") return { key, title: "Restart HCI", body: "This will briefly take Mission Control offline (approx 5 seconds). In-flight requests will fail. Continue?", confirmLabel: "Restart HCI", riskLevel: "low" };
     if (key === "updateAll") return { key, title: "Update Mission Control", body: <>This will pull {updateCount} new commits from {updateBranch} and rebuild Mission Control. Mission Control will restart. A snapshot will be taken first.</>, confirmLabel: "Update All", riskLevel: "high", requirePhrase: "UPDATE MISSION CONTROL" };
-    if (key === "rollback") return { key, title: "Rollback Mission Control", body: <><select className="mb-3 w-full rounded-2xl border border-foreground/12 bg-background/80 px-3 py-2 text-foreground" value={selectedCommit} onChange={(event) => setSelectedCommit(event.target.value)}>{commits.map((commit) => <option key={commit.hash} value={commit.hash}>{commit.short} — {commit.subject}</option>)}<option value="HEAD~1">HEAD~1</option></select><p>This will reset Mission Control to commit {selectedCommit}. A snapshot of current state will be taken first.</p></>, confirmLabel: "Rollback", riskLevel: "medium" };
+    if (key === "rollback") return { key, title: "Rollback Mission Control", body: <><select className="mb-3 w-full rounded-2xl border border-foreground/12 bg-background/80 px-3 py-2 text-foreground" value={selectedCommit} onChange={(event) => setSelectedCommit(event.target.value)}>{commits.map((commit) => <option key={commit.hash} value={commit.hash}>{commit.short} - {commit.subject}</option>)}<option value="HEAD~1">HEAD~1</option></select><p>This will reset Mission Control to commit {selectedCommit}. A snapshot of current state will be taken first.</p></>, confirmLabel: "Rollback", riskLevel: "medium" };
     if (key === "autoFix") return { key, title: "Auto-Fix", body: <span>This will run these repair operations:<br />• Clear stale lock files<br />• Truncate oversized logs<br />• Resync dist directory<br />• Restart down services</span>, confirmLabel: "Auto-Fix", riskLevel: "medium" };
     if (key === "updateHermes") return { key, title: "Hermes Update", body: "This will update Hermes Agent and restart the Hermes Agent service. Mission Control stays online. A snapshot will be taken first.", confirmLabel: "Update Hermes", riskLevel: "high", requirePhrase: "UPDATE HERMES" };
+    if (key === "restartGateway") return { key, title: "Restart Hermes Agent Gateway", body: "This restarts the Hermes Agent service on localhost:9119. Open chat sessions on the gateway will be interrupted briefly. Mission Control will not be affected.", confirmLabel: "Restart Gateway", riskLevel: "high", requirePhrase: "RESTART GATEWAY" };
     return { key, title: "Import Backup", body: <><input type="file" accept=".gz,.tgz,.tar.gz" onChange={(event) => setImportFile(event.target.files?.[0] ?? null)} className="mb-3 block w-full text-sm" />{importFile ? <p>This will REPLACE all current Mission Control and Hermes data with the contents of {importFile.name}. A snapshot of current state will be taken first.</p> : <p>Choose a Mission Control backup archive before confirming.</p>}</>, confirmLabel: "Import", riskLevel: "high", requirePhrase: "RESTORE FROM BACKUP" };
   };
 
@@ -139,7 +225,7 @@ export function MaintenanceView() {
       <Card title="HCI Update" icon={GitBranch} body={versionBody} result={<><ErrorPanel message={errors.updates} />{results.updates ? <UpdatesResult result={results.updates} /> : null}<OperationResult result={destructiveResults.updateAll} /><OperationResult result={destructiveResults.rollback} /></>}><ActionButton loading={loading.updates} onClick={() => void runAction("updates", api.checkMaintenanceUpdates)}>Check Updates</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "updateAll"} onClick={() => setModal(modalFor("updateAll"))}>Update All</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "rollback"} onClick={() => setModal(modalFor("rollback"))}>Rollback</ActionButton></Card>
       <Card title="Doctor" icon={Stethoscope} body="Run diagnostics" result={<><ErrorPanel message={errors.doctor} />{results.doctor ? <DoctorResultPanel result={results.doctor} /> : null}<AutoFixResult result={destructiveResults.autoFix} /></>}><ActionButton loading={loading.doctor} onClick={() => void runAction("doctor", api.runMaintenanceDoctor)}>Run Diagnose</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "autoFix"} onClick={() => setModal(modalFor("autoFix"))}>Auto-Fix</ActionButton></Card>
       <Card title="Dump" icon={FileDown} body="Setup summary for debugging" result={<><ErrorPanel message={errors.dump} />{results.dump ? <FileResult label="Dump created" filename={results.dump.filename} size={results.dump.size_bytes} href={results.dump.download_url} /> : null}</>}><ActionButton loading={loading.dump} onClick={() => void runAction("dump", api.generateMaintenanceDump)}>Generate Dump</ActionButton></Card>
-      <Card title="Hermes Update" icon={RefreshCw} body={<><span>{version ? `Version ${version.hermes_agent.version}` : "Loading version…"}</span><a href="https://github.com/NousResearch/hermes-agent/releases" target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-[11px] text-foreground/60 underline-offset-4 transition hover:text-[var(--warm-glow)] hover:underline">View releases <ExternalLink className="h-3 w-3" /></a></>} result={<OperationResult result={destructiveResults.updateHermes} />}><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "updateHermes"} onClick={() => setModal(modalFor("updateHermes"))}>Update Hermes</ActionButton></Card>
+      <Card title="Hermes Update" icon={RefreshCw} body={hermesBody} result={<><OperationResult result={destructiveResults.updateHermes} />{hermesLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hermesLastChecked}</div> : null}{hermesCheckFailed ? <div className="mt-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}{gatewayStatusLine ? <div className={cn("mt-2 text-[11px]", gatewayRestartState === "success" ? "text-emerald-400" : gatewayRestartState === "timeout" || gatewayRestartState === "error" ? "text-[#ffbd38]" : "text-foreground/55")}>{gatewayStatusLine}</div> : null}</>}><ActionButton disabled={hermesButtonsDisabled} loading={hermesChecking} onClick={() => void checkHermesStatus()}>Check Update</ActionButton><ActionButton disabled={hermesButtonsDisabled} loading={destructiveLoading === "updateHermes"} onClick={() => setModal(modalFor("updateHermes"))}>Update Hermes</ActionButton><ActionButton variant="warning" disabled={hermesButtonsDisabled} loading={destructiveLoading === "restartGateway"} onClick={() => setModal(modalFor("restartGateway"))}>Restart Gateway</ActionButton></Card>
       <Card title="Backup & Import" icon={Archive} body="Create and restore Hermes data backups" result={<><ErrorPanel message={errors.backup} />{results.backup ? <FileResult label="Backup created" filename={results.backup.filename} size={results.backup.size_bytes} href={results.backup.download_url} createdAt={results.backup.created_at} /> : null}<OperationResult result={destructiveResults.import} /></>}><ActionButton loading={loading.backup} onClick={() => void runAction("backup", api.createMaintenanceBackup)}>Create Backup</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "import"} onClick={() => setModal(modalFor("import"))}>Import</ActionButton></Card>
     </div>
     <div className="mt-5 flex items-center gap-2 rounded-2xl border border-foreground/10 bg-background/40 px-4 py-3 text-xs text-foreground/70 backdrop-blur-xl"><ShieldAlert className="h-4 w-4 text-[#ffbd38]" /> Destructive actions require confirmation; high-risk actions auto-snapshot before execution.</div>

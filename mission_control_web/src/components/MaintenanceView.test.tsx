@@ -10,6 +10,8 @@ import { api } from "@/lib/api";
 vi.mock("@/lib/api", () => ({
   api: {
     getMaintenanceVersion: vi.fn(),
+    getHermesMaintenanceStatus: vi.fn(),
+    restartGatewayMaintenance: vi.fn(),
     getMissionControlCommits: vi.fn(),
     runMaintenanceHealthCheck: vi.fn(),
     checkMaintenanceUpdates: vi.fn(),
@@ -36,6 +38,18 @@ beforeEach(() => {
     hermes_agent: { version: "0.13.0" },
   });
   vi.mocked(api.getMissionControlCommits).mockResolvedValue({ ok: true, commits: [] });
+  vi.mocked(api.getHermesMaintenanceStatus).mockResolvedValue({
+    current_version: "0.14.0",
+    latest_version: "0.14.0",
+    commits_behind: 0,
+    carried_commits_ahead: 31,
+    upstream_sha: "f3a4af9c",
+    local_sha: "bc769694",
+    branch: "mission-control-work",
+    checked_at: "2026-05-16T12:00:00Z",
+    status: "ahead",
+  });
+  vi.mocked(api.restartGatewayMaintenance).mockResolvedValue({ ok: true, method: "launchctl_kickstart", label: "ai.hermes.gateway", initiated_at: "2026-05-16T12:00:00Z" });
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -58,5 +72,40 @@ describe("Maintenance Hermes Update releases link", () => {
     expect(link?.getAttribute("href")).toBe("https://github.com/NousResearch/hermes-agent/releases");
     expect(link?.getAttribute("target")).toBe("_blank");
     expect(link?.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("renders maintenance confirmation modal titles as uppercase tracked headings", async () => {
+    await act(async () => {
+      root.render(<MaintenanceView />);
+    });
+
+    const expectations = [
+      ["Restart HCI", "RESTART HCI"],
+      ["Update All", "UPDATE MISSION CONTROL"],
+      ["Rollback", "ROLLBACK MISSION CONTROL"],
+      ["Auto-Fix", "AUTO-FIX"],
+      ["Update Hermes", "HERMES UPDATE"],
+      ["Restart Gateway", "RESTART HERMES AGENT GATEWAY"],
+      ["Import", "IMPORT BACKUP"],
+    ] as const;
+
+    for (const [buttonLabel, expectedTitle] of expectations) {
+      const button = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.trim() === buttonLabel) as HTMLButtonElement | undefined;
+      expect(button, `${buttonLabel} button`).toBeTruthy();
+
+      await act(async () => {
+        button?.click();
+      });
+
+      const title = host.querySelector("#confirm-action-title");
+      expect(title?.textContent).toBe(expectedTitle);
+      expect(title?.className).toContain("uppercase");
+      expect(title?.className).toContain("tracking-[0.24em]");
+
+      const cancel = Array.from(host.querySelectorAll("button")).find((candidate) => candidate.textContent?.trim() === "Cancel") as HTMLButtonElement | undefined;
+      await act(async () => {
+        cancel?.click();
+      });
+    }
   });
 });

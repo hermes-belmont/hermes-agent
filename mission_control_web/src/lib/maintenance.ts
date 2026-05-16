@@ -3,6 +3,26 @@ export type MaintenanceVersion = {
   hermes_agent: { version: string };
 };
 
+export type HermesStatus = {
+  current_version: string | null;
+  latest_version: string | null;
+  commits_behind: number | null;
+  carried_commits_ahead: number | null;
+  upstream_sha: string | null;
+  local_sha: string | null;
+  branch: string | null;
+  checked_at: string;
+  status: "up_to_date" | "behind" | "ahead" | "diverged" | "unknown";
+};
+
+export type RestartGatewayResult = {
+  ok: boolean;
+  method?: "launchctl_kickstart" | "launchctl_reload" | "hermes_cli";
+  label?: string | null;
+  initiated_at?: string;
+  reason?: string;
+};
+
 export type HealthCheckResult = {
   ok: boolean;
   checks: { endpoint: string; status: number; latency_ms: number; error?: string }[];

@@ -47,6 +47,7 @@ export function ConfirmActionModal({
     : riskLevel === "medium"
       ? "border-[#ffbd38]/60 bg-[#ffbd38]/18 text-[#ffbd38] hover:bg-[#ffbd38]/25"
       : "border-red-500/70 bg-red-500/18 text-red-300 hover:bg-red-500/25";
+  const displayTitle = title.toLocaleUpperCase();
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm" onMouseDown={closeIfAllowed} role="presentation">
@@ -57,7 +58,7 @@ export function ConfirmActionModal({
         aria-labelledby="confirm-action-title"
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <h2 id="confirm-action-title" className="text-left text-xl font-light tracking-[-0.03em]">{title}</h2>
+        <h2 id="confirm-action-title" className="text-left text-[10px] uppercase tracking-[0.24em] text-foreground/70">{displayTitle}</h2>
         <div className="mt-4 text-sm leading-6 text-foreground/78">{body}</div>
         {requirePhrase ? (
           <label className="mt-5 block text-xs text-foreground/70">
