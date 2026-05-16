@@ -29,6 +29,8 @@ describe("resolveHashView", () => {
   it("maps each settings subsection", () => {
     expect(resolveHashView("#/settings/models").settingsSection).toBe("models");
     expect(resolveHashView("#/settings/themes").settingsSection).toBe("themes");
+    expect(resolveHashView("#/settings/desktop-remote").settingsSection).toBe("desktop-remote");
+    expect(resolveHashView("#/settings/keys").settingsSection).toBe("keys");
     expect(resolveHashView("#/settings/account").settingsSection).toBe("account");
     expect(resolveHashView("#/settings/models").redirectToModels).toBe(false);
   });

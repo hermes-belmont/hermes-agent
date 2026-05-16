@@ -17,14 +17,15 @@ import {
   setPluginLoadError,
 } from "./registry";
 
-export function usePlugins() {
+export function usePlugins(enabled = true) {
   const [manifests, setManifests] = useState<PluginManifest[]>([]);
   const [plugins, setPlugins] = useState<RegisteredPlugin[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(enabled);
   const loadedScripts = useRef<Set<string>>(new Set());
 
   // Fetch manifests on mount.
   useEffect(() => {
+    if (!enabled) return;
     api
       .getPlugins()
       .then((list) => {
@@ -32,11 +33,11 @@ export function usePlugins() {
         if (list.length === 0) setLoading(false);
       })
       .catch(() => setLoading(false));
-  }, []);
+  }, [enabled]);
 
   // Load plugin assets when manifests arrive.
   useEffect(() => {
-    if (manifests.length === 0) return;
+    if (!enabled || manifests.length === 0) return;
 
     const injectedScripts: HTMLScriptElement[] = [];
 
@@ -105,7 +106,7 @@ export function usePlugins() {
         }
       }
     };
-  }, [manifests]);
+  }, [enabled, manifests]);
 
   // Listen for plugin registrations and resolve them against manifests.
   useEffect(() => {
@@ -127,7 +128,7 @@ export function usePlugins() {
     resolvePlugins();
     const unsub = onPluginRegistered(resolvePlugins);
     return unsub;
-  }, [manifests]);
+  }, [enabled, manifests]);
 
   return { plugins, manifests, loading };
 }

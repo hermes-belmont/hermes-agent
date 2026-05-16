@@ -38,7 +38,7 @@ export function navigateToSettingsSection(section: SettingsSection): void {
  *   "#/monitor"                          → monitor
  *   "#/maintenance"                      → maintenance
  *   "#/settings"                         → settings/models (redirect target)
- *   "#/settings/models|themes|desktop-remote|account"   → settings/<section>
+ *   "#/settings/models|themes|desktop-remote|keys|account"   → settings/<section>
  * Anything else falls back to new-chat with `fallback=true`.
  *
  * The handler is idempotent by construction: callers compare the result to the
@@ -93,6 +93,10 @@ export function resolveHashView(rawHash: string): ResolvedHashView {
 
   if (hash === "#/settings/desktop-remote") {
     return { view: "settings", settingsSection: "desktop-remote", fallback: false, redirectToModels: false };
+  }
+
+  if (hash === "#/settings/keys") {
+    return { view: "settings", settingsSection: "keys", fallback: false, redirectToModels: false };
   }
 
   if (hash === "#/settings/account") {

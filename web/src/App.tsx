@@ -307,13 +307,15 @@ function buildRoutes(
 
 export default function App() {
   const { t } = useI18n();
-  const { pathname } = useLocation();
-  const { manifests, loading: pluginsLoading } = usePlugins();
+  const location = useLocation();
+  const { pathname } = location;
+  const normalizedPath = pathname.replace(/\/$/, "") || "/";
+  const isEnvEmbed = normalizedPath === "/env" && new URLSearchParams(location.search).get("embed") === "1";
+  const { manifests, loading: pluginsLoading } = usePlugins(!isEnvEmbed);
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
   const isDocsRoute = pathname === "/docs" || pathname === "/docs/";
-  const normalizedPath = pathname.replace(/\/$/, "") || "/";
   const isChatRoute = normalizedPath === "/chat";
   const embeddedChat = isDashboardEmbeddedChatEnabled();
 
@@ -412,6 +414,23 @@ export default function App() {
     mql.addEventListener("change", onChange);
     return () => mql.removeEventListener("change", onChange);
   }, []);
+
+  if (isEnvEmbed) {
+    return (
+      <div
+        data-layout-variant={layoutVariant}
+        data-dashboard-embed="env"
+        className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
+      >
+        <Backdrop />
+        <PageHeaderProvider pluginTabs={[]} embedded>
+          <div className="relative z-2 flex min-h-0 min-w-0 flex-1 flex-col p-3 sm:p-4">
+            <EnvPage />
+          </div>
+        </PageHeaderProvider>
+      </div>
+    );
+  }
 
   return (
     <div

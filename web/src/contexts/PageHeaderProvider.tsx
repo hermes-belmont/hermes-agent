@@ -7,9 +7,11 @@ import { useI18n } from "@/i18n";
 
 export function PageHeaderProvider({
   children,
+  embedded = false,
   pluginTabs,
 }: {
   children: ReactNode;
+  embedded?: boolean;
   pluginTabs: { path: string; label: string }[];
 }) {
   const { pathname } = useLocation();
@@ -48,7 +50,7 @@ export function PageHeaderProvider({
   return (
     <PageHeaderContext.Provider value={value}>
       <div className="flex min-h-0 w-full min-w-0 flex-1 flex-col overflow-hidden">
-        <header
+        {!embedded && <header
           className={cn(
             "z-1 w-full shrink-0",
             "box-border h-14 min-h-14",
@@ -88,12 +90,14 @@ export function PageHeaderProvider({
               </div>
             ) : null}
           </div>
-        </header>
+        </header>}
 
         <main
           className={cn(
             "min-h-0 w-full min-w-0 flex-1 flex flex-col",
-            isChatRoute
+            embedded
+              ? "overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]"
+              : isChatRoute
               ? "overflow-hidden"
               : "overflow-y-auto overflow-x-hidden [scrollbar-gutter:stable]",
           )}
