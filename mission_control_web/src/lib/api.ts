@@ -1,4 +1,4 @@
-import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResult, GitCommitOption, HealthCheckResult, HermesStatus, MaintenanceVersion, RestartGatewayResult, UpdateCheckResult } from "@/lib/maintenance";
+import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResult, GitCommitOption, HealthCheckResult, HciStatus, HermesStatus, MaintenanceVersion, RestartGatewayResult, UpdateCheckResult } from "@/lib/maintenance";
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
@@ -112,6 +112,7 @@ export const api = {
   listReactiveSweeps: (agentId: string, limit = 50) => fetchJSON<ReactiveSweep[]>(`/api/reactive-sweeps/${encodeURIComponent(agentId)}?limit=${encodeURIComponent(String(limit))}`),
   getMaintenanceVersion: () => fetchJSON<MaintenanceVersion>("/api/maintenance/version"),
   getHermesMaintenanceStatus: () => fetchJSON<HermesStatus>("/api/mission-control/maintenance/hermes-status"),
+  getHciMaintenanceStatus: () => fetchJSON<HciStatus>("/api/mission-control/maintenance/hci-status"),
   restartGatewayMaintenance: () => fetchJSON<RestartGatewayResult>("/api/mission-control/maintenance/restart-gateway", { method: "POST" }),
   runMaintenanceHealthCheck: () => fetchJSON<HealthCheckResult>("/api/maintenance/health-check", { method: "POST" }),
   checkMaintenanceUpdates: () => fetchJSON<UpdateCheckResult>("/api/maintenance/check-updates", { method: "POST" }),

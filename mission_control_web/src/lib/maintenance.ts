@@ -15,6 +15,26 @@ export type HermesStatus = {
   status: "up_to_date" | "behind" | "ahead" | "diverged" | "unknown";
 };
 
+export type HciStatus = {
+  worktree: { branch: string | null; head_sha: string | null; head_sha_short: string | null };
+  mission_control: {
+    running_sha: string | null;
+    running_sha_short: string | null;
+    running_built_at: string | null;
+    status: "in_sync" | "rebuild_required" | "unknown";
+    source: "dist_manifest" | "dist_git_log" | "fallback";
+  };
+  hermes_agent: {
+    installed_version: string | null;
+    installed_sha: string | null;
+    installed_sha_short: string | null;
+    status: "in_sync" | "reinstall_required" | "unknown";
+    source: "uv_pip_show" | "hermes_version_cmd" | "fallback";
+    source_label?: string;
+  };
+  checked_at: string;
+};
+
 export type RestartGatewayResult = {
   ok: boolean;
   method?: "launchctl_kickstart" | "launchctl_reload" | "hermes_cli";

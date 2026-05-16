@@ -158,7 +158,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-PUBLIC_API_PATHS = frozenset({"/api/mission-control/health", "/api/system/metrics"})
+PUBLIC_API_PATHS = frozenset({"/api/mission-control/health", "/api/system/metrics", "/api/mission-control/maintenance/hci-status"})
 
 
 @app.middleware("http")
@@ -518,6 +518,178 @@ def _maintenance_hermes_status(cwd: Path = PROJECT_ROOT) -> dict[str, Any]:
     except Exception:
         payload["status"] = "unknown"
     return payload
+
+
+def _read_json_file(path: Path, timeout: float = 1.0) -> dict[str, Any] | None:
+    result: dict[str, Any] = {}
+
+    def worker() -> None:
+        nonlocal result
+        result = json.loads(path.read_text(encoding="utf-8"))
+
+    thread = threading.Thread(target=worker, daemon=True)
+    thread.start()
+    thread.join(timeout)
+    if thread.is_alive():
+        return None
+    return result if isinstance(result, dict) else None
+
+
+def _source_label(value: str | None) -> str:
+    return {
+        "uv_pip_show": "uv pip",
+        "hermes_version_cmd": "hermes version",
+        "fallback": "fallback",
+    }.get(value or "", value or "unknown")
+
+
+def _worktree_hci_status(cwd: Path = PROJECT_ROOT) -> dict[str, Any]:
+    _, head_sha, _ = _run_git(["rev-parse", "HEAD"], cwd, timeout=1.0)
+    _, branch, _ = _run_git(["rev-parse", "--abbrev-ref", "HEAD"], cwd, timeout=1.0)
+    head = head_sha.strip() or None
+    return {"branch": branch or None, "head_sha": head, "head_sha_short": _short_sha(head)}
+
+
+def _mission_control_dist_status(worktree: dict[str, Any]) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "running_sha": None,
+        "running_sha_short": None,
+        "running_built_at": None,
+        "status": "unknown",
+        "source": "fallback",
+    }
+    manifest = _read_json_file(MISSION_CONTROL_DIST / "build-manifest.json")
+    if manifest:
+        running_sha = str(manifest.get("head_sha") or "").strip() or None
+        payload.update({
+            "running_sha": running_sha,
+            "running_sha_short": _short_sha(running_sha),
+            "running_built_at": str(manifest.get("built_at") or "").strip() or None,
+            "source": "dist_manifest",
+        })
+    elif MISSION_CONTROL_DIST.exists():
+        try:
+            payload["running_built_at"] = datetime.fromtimestamp(MISSION_CONTROL_DIST.stat().st_mtime, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+        except Exception:
+            payload["running_built_at"] = None
+    running_sha = payload.get("running_sha")
+    head_sha = worktree.get("head_sha")
+    if running_sha and head_sha:
+        payload["status"] = "in_sync" if running_sha == head_sha else "rebuild_required"
+    return payload
+
+
+def _parse_key_value_lines(text: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for line in text.splitlines():
+        key, sep, value = line.partition(":")
+        if sep:
+            parsed[key.strip().lower()] = value.strip()
+    return parsed
+
+
+def _hermes_agent_import_metadata(python_path: Path) -> tuple[str | None, str | None]:
+    if not python_path.exists():
+        return None, None
+    code = """import importlib\nfor name in ('hermes_cli', 'hermes_agent'):\n    try:\n        mod = importlib.import_module(name)\n        print(getattr(mod, '__version__', '') or '')\n        print(getattr(mod, '__commit__', '') or getattr(mod, '__git_commit__', '') or '')\n        break\n    except Exception:\n        pass\n"""
+    try:
+        result = subprocess.run([str(python_path), "-c", code], capture_output=True, text=True, timeout=2.0, check=False)
+    except Exception:
+        return None, None
+    lines = result.stdout.splitlines()
+    version = lines[0].strip() if lines else None
+    commit = lines[1].strip() if len(lines) > 1 else None
+    return version or None, commit or None
+
+
+def _hermes_agent_uv_metadata() -> tuple[str | None, str | None, str]:
+    python_path = Path.home() / ".hermes" / "hermes-agent" / "venv" / "bin" / "python"
+    imported_version, imported_commit = _hermes_agent_import_metadata(python_path)
+    uv_path = shutil.which("uv")
+    show_text = ""
+    if uv_path and python_path.exists():
+        try:
+            result = subprocess.run([uv_path, "pip", "show", "hermes-agent", "--python", str(python_path)], capture_output=True, text=True, timeout=2.0, check=False)
+            if result.returncode == 0:
+                show_text = result.stdout
+        except Exception:
+            show_text = ""
+    if not show_text and python_path.exists():
+        try:
+            result = subprocess.run([str(python_path), "-m", "pip", "show", "hermes-agent"], capture_output=True, text=True, timeout=2.0, check=False)
+            if result.returncode == 0:
+                show_text = result.stdout
+        except Exception:
+            show_text = ""
+    parsed = _parse_key_value_lines(show_text) if show_text else {}
+    version = imported_version or parsed.get("version")
+    commit = imported_commit
+    editable = parsed.get("editable project location") or parsed.get("location")
+    if not commit and editable:
+        path = Path(editable).expanduser()
+        if (path / ".git").exists():
+            _, git_sha, _ = _run_git(["rev-parse", "HEAD"], path, timeout=1.0)
+            commit = git_sha or None
+    return version or None, commit or None, "uv_pip_show" if show_text else "fallback"
+
+
+def _hermes_agent_version_cmd_metadata() -> tuple[str | None, str | None, str]:
+    hermes_path = shutil.which("hermes")
+    if not hermes_path:
+        return None, None, "fallback"
+    try:
+        result = subprocess.run([hermes_path, "--version"], capture_output=True, text=True, timeout=1.5, check=False)
+    except Exception:
+        return None, None, "fallback"
+    text = f"{result.stdout} {result.stderr}"
+    version_match = re.search(r"(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)", text)
+    sha_match = re.search(r"\b[0-9a-f]{7,40}\b", text, re.IGNORECASE)
+    return (version_match.group(1) if version_match else None, sha_match.group(0) if sha_match else None, "hermes_version_cmd")
+
+
+def _tag_points_at_worktree_version(cwd: Path, version: str | None, head_sha: str | None) -> bool:
+    if not version or not head_sha:
+        return False
+    candidates = [version, f"v{version}"]
+    for tag in candidates:
+        code, tag_sha, _ = _run_git(["rev-list", "-n", "1", tag], cwd, timeout=1.0)
+        if code == 0 and tag_sha and tag_sha == head_sha:
+            return True
+    return False
+
+
+def _hermes_agent_installed_status(worktree: dict[str, Any], cwd: Path = PROJECT_ROOT) -> dict[str, Any]:
+    version, sha, source = _hermes_agent_uv_metadata()
+    if not version or not sha:
+        fallback_version, fallback_sha, fallback_source = _hermes_agent_version_cmd_metadata()
+        version = version or fallback_version
+        sha = sha or fallback_sha
+        source = fallback_source if fallback_version or fallback_sha else source
+    payload: dict[str, Any] = {
+        "installed_version": version,
+        "installed_sha": sha,
+        "installed_sha_short": _short_sha(sha),
+        "status": "unknown",
+        "source": source if source != "fallback" else "fallback",
+        "source_label": _source_label(source),
+    }
+    head_sha = worktree.get("head_sha")
+    if sha and head_sha:
+        payload["status"] = "in_sync" if sha == head_sha or _tag_points_at_worktree_version(cwd, version, head_sha) else "reinstall_required"
+    elif not sha:
+        payload["source"] = "fallback"
+        payload["source_label"] = _source_label("fallback")
+    return payload
+
+
+def _maintenance_hci_status(cwd: Path = PROJECT_ROOT) -> dict[str, Any]:
+    worktree = _worktree_hci_status(cwd)
+    return {
+        "worktree": worktree,
+        "mission_control": _mission_control_dist_status(worktree),
+        "hermes_agent": _hermes_agent_installed_status(worktree, cwd),
+        "checked_at": _utc_now_z(),
+    }
 
 
 def _launchctl_labels() -> list[str]:
@@ -2785,6 +2957,11 @@ async def maintenance_check_updates() -> dict[str, Any]:
         "hermes_agent": dict(status),
         "checked_at": _utc_now_iso(),
     }
+
+
+@app.get("/api/mission-control/maintenance/hci-status")
+async def mission_control_maintenance_hci_status() -> dict[str, Any]:
+    return await asyncio.to_thread(_maintenance_hci_status, PROJECT_ROOT)
 
 
 @app.get("/api/mission-control/maintenance/hermes-status")

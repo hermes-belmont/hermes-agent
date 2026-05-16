@@ -11,6 +11,7 @@ vi.mock("@/lib/api", () => ({
   api: {
     getMaintenanceVersion: vi.fn(),
     getHermesMaintenanceStatus: vi.fn(),
+    getHciMaintenanceStatus: vi.fn(),
     restartGatewayMaintenance: vi.fn(),
     getMissionControlCommits: vi.fn(),
     runMaintenanceHealthCheck: vi.fn(),
@@ -38,6 +39,12 @@ beforeEach(() => {
     hermes_agent: { version: "0.13.0" },
   });
   vi.mocked(api.getMissionControlCommits).mockResolvedValue({ ok: true, commits: [] });
+  vi.mocked(api.getHciMaintenanceStatus).mockResolvedValue({
+    worktree: { branch: "mission-control-work", head_sha: "abc123456789", head_sha_short: "abc12345" },
+    mission_control: { running_sha: "abc123456789", running_sha_short: "abc12345", running_built_at: "2026-05-16T17:00:00Z", status: "in_sync", source: "dist_manifest" },
+    hermes_agent: { installed_version: "0.14.0", installed_sha: "def987654321", installed_sha_short: "def98765", status: "reinstall_required", source: "uv_pip_show", source_label: "uv pip" },
+    checked_at: "2026-05-16T17:00:00Z",
+  });
   vi.mocked(api.getHermesMaintenanceStatus).mockResolvedValue({
     current_version: "0.14.0",
     latest_version: "0.14.0",

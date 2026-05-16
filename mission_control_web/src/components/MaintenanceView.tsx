@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { ConfirmActionModal } from "./ConfirmActionModal";
 import type { RiskLevel } from "@/lib/confirm-action";
-import { formatFileSize, updateSummary, type BackupResult, type DestructiveMaintenanceResult, type DoctorResult, type DumpResult, type GitCommitOption, type HealthCheckResult, type HermesStatus, type MaintenanceVersion, type UpdateCheckResult } from "@/lib/maintenance";
+import { formatFileSize, type BackupResult, type DestructiveMaintenanceResult, type DoctorResult, type DumpResult, type GitCommitOption, type HealthCheckResult, type HciStatus, type HermesStatus, type MaintenanceVersion, type UpdateCheckResult } from "@/lib/maintenance";
 
 type ActionKey = "health" | "updates" | "doctor" | "dump" | "backup";
 type DestructiveKey = "restart" | "updateAll" | "rollback" | "autoFix" | "updateHermes" | "restartGateway" | "import";
@@ -50,9 +50,42 @@ function HermesStatusBlock({ status }: { status: HermesStatus | null }) {
 function HealthResult({ result }: { result: HealthCheckResult }) {
   return <details open className="rounded-2xl border border-foreground/10 bg-background/50 p-3"><summary className="cursor-pointer text-xs uppercase tracking-[0.18em] text-foreground/70">{result.ok ? "All checks passing" : "Checks need attention"}</summary><div className="mt-3 space-y-2">{result.checks.map((check) => <div key={check.endpoint} className="flex items-start justify-between gap-3 rounded-xl bg-foreground/5 px-3 py-2 text-xs text-foreground/80"><span className="flex min-w-0 items-center gap-2"><StatusDot ok={check.status >= 200 && check.status < 300} /><span className="truncate">{check.endpoint}</span></span><span className="shrink-0 text-foreground/70">{check.status || "ERR"} · {check.latency_ms}ms</span>{check.error ? <span className="basis-full text-[#ffbd38]">{check.error}</span> : null}</div>)}</div></details>;
 }
-function UpdatesResult({ result }: { result: UpdateCheckResult }) {
-  const rows = [["Mission Control", result.mission_control] as const, ["Hermes Agent", result.hermes_agent] as const];
-  return <div className="rounded-2xl border border-foreground/10 bg-background/50 p-3 text-xs text-foreground/80">{rows.map(([label, value]) => <div key={label} className="border-b border-foreground/8 py-2 last:border-0"><div className="flex items-center justify-between gap-3"><span>{label}</span><span className={value.up_to_date ? "text-emerald-400" : "text-[#ffbd38]"}>{updateSummary(value)}</span></div><div className="mt-1 text-foreground/60">Latest commit: {value.latest_commit}</div>{value.error ? <div className="mt-1 text-[#ffbd38]">{value.error}</div> : null}</div>)}</div>;
+function relativeTime(value?: string | null): string {
+  if (!value) return "Build time unknown";
+  const timestamp = new Date(value).getTime();
+  if (!Number.isFinite(timestamp)) return "Build time unknown";
+  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `${days}d ago`;
+}
+
+function HciStatusPill({ status, kind }: { status: "in_sync" | "rebuild_required" | "reinstall_required" | "unknown"; kind: "mission_control" | "hermes_agent" }) {
+  if (status === "in_sync") return <span className="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-emerald-400">Up to date</span>;
+  if (status === "unknown") return <span className="rounded-full border border-foreground/15 bg-foreground/5 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-foreground/55">Unknown</span>;
+  return <span className="rounded-full border border-[#ffbd38]/30 bg-[#ffbd38]/10 px-2 py-1 text-[10px] uppercase tracking-[0.16em] text-[#ffbd38]">{kind === "mission_control" ? "Rebuild required" : "Reinstall required"}</span>;
+}
+
+function HciStatusRows({ status }: { status: HciStatus | null }) {
+  if (!status) return <div className="rounded-2xl border border-foreground/10 bg-background/50 p-3 text-xs text-foreground/55">Loading update status...</div>;
+  const mission = status.mission_control;
+  const hermes = status.hermes_agent;
+  return <div className="rounded-2xl border border-foreground/10 bg-background/50 p-3 text-xs text-foreground/80">
+    <div className="border-b border-foreground/8 py-2">
+      <div className="flex items-center justify-between gap-3"><span>Mission Control</span><HciStatusPill status={mission.status} kind="mission_control" /></div>
+      <div className="mt-1 font-mono text-foreground/85">{mission.running_sha_short ?? "unknown"}</div>
+      <div className="mt-1 text-foreground/55">Built {relativeTime(mission.running_built_at)}</div>
+    </div>
+    <div className="py-2">
+      <div className="flex items-center justify-between gap-3"><span>Hermes Agent</span><HciStatusPill status={hermes.status} kind="hermes_agent" /></div>
+      <div className="mt-1 font-mono text-foreground/85">{hermes.installed_version ?? "unknown"} {hermes.installed_sha_short ?? "unknown"}</div>
+      <div className="mt-1 text-foreground/55">{hermes.source_label ?? hermes.source}</div>
+    </div>
+  </div>;
 }
 function DoctorResultPanel({ result }: { result: DoctorResult }) {
   const status = result.ok ? "OK" : result.checks.some((check) => check.status === "fail") ? "FAIL" : "WARN";
@@ -121,12 +154,30 @@ export function MaintenanceView() {
   const [errors, setErrors] = useState<ErrorState>({});
   const [modal, setModal] = useState<ModalState>(null);
   const [restartOverlay, setRestartOverlay] = useState<string | undefined>();
+  const [hciStatus, setHciStatus] = useState<HciStatus | null>(null);
+  const [hciChecking, setHciChecking] = useState(false);
+  const [hciLastChecked, setHciLastChecked] = useState<string | null>(null);
+  const [hciCheckFailed, setHciCheckFailed] = useState(false);
   const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
   const [hermesChecking, setHermesChecking] = useState(false);
   const [hermesLastChecked, setHermesLastChecked] = useState<string | null>(null);
   const [hermesCheckFailed, setHermesCheckFailed] = useState(false);
   const [gatewayRestartState, setGatewayRestartState] = useState<GatewayRestartState>("idle");
   const [gatewayRespondedAt, setGatewayRespondedAt] = useState<string | null>(null);
+
+  const checkHciStatus = useCallback(async () => {
+    setHciChecking(true);
+    setHciCheckFailed(false);
+    try {
+      const payload = await api.getHciMaintenanceStatus();
+      setHciStatus(payload);
+      setHciLastChecked(formatClock());
+    } catch {
+      setHciCheckFailed(true);
+    } finally {
+      setHciChecking(false);
+    }
+  }, []);
 
   const checkHermesStatus = useCallback(async () => {
     setHermesChecking(true);
@@ -147,6 +198,7 @@ export function MaintenanceView() {
     void api.getMissionControlCommits().then((payload) => { setCommits(payload.commits); if (payload.commits[1]) setSelectedCommit(payload.commits[1].hash); }).catch(() => undefined);
   }, []);
 
+  useEffect(() => { void checkHciStatus(); }, [checkHciStatus]);
   useEffect(() => { void checkHermesStatus(); }, [checkHermesStatus]);
 
   const runAction = useCallback(async <K extends ActionKey>(key: K, fn: () => Promise<NonNullable<ResultState[K]>>) => {
@@ -160,7 +212,7 @@ export function MaintenanceView() {
   const hermesButtonsDisabled = destructiveDisabled || gatewayBusy;
   const updateCount = results.updates?.mission_control.behind_by ?? 0;
   const updateBranch = version?.mission_control.branch ?? "current branch";
-  const versionBody = version ? <span>Version {version.mission_control.version} <span className="text-foreground/45">Commit</span> {version.mission_control.commit} <span className="text-foreground/45">Branch</span> {version.mission_control.branch}</span> : <span>{errors.version ? "Version unavailable" : "Loading version..."}</span>;
+  const hciBody = version ? <span>Version {version.mission_control.version} <span className="text-foreground/45">Commit</span> {hciStatus?.worktree.head_sha_short ?? version.mission_control.commit} <span className="text-foreground/45">Branch</span> {hciStatus?.worktree.branch ?? version.mission_control.branch}</span> : <span>{errors.version ? "Version unavailable" : "Loading version..."}</span>;
   const hermesBody = <><div className="flex flex-wrap items-center gap-x-3 gap-y-1"><span>{version ? `Version ${version.hermes_agent.version}` : "Loading version..."}</span><a href="https://github.com/NousResearch/hermes-agent/releases" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-[11px] text-foreground/60 underline-offset-4 transition hover:text-[var(--warm-glow)] hover:underline">View releases <ExternalLink className="h-3 w-3" /></a></div><HermesStatusBlock status={hermesStatus} /></>;
 
   const runGatewayRestart = async () => {
@@ -222,7 +274,7 @@ export function MaintenanceView() {
     <div className="mb-6"><p className="text-[10px] uppercase tracking-[0.28em] text-foreground/70">Maintenance</p><h1 className="mt-2 text-3xl font-light tracking-[-0.04em] text-foreground sm:text-4xl">Maintenance</h1><p className="mt-2 text-sm text-foreground/70">System tools and diagnostics</p></div>
     <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
       <Card title="Health Check" icon={HeartPulse} body="Test all HCI API endpoints" result={<><ErrorPanel message={errors.health} />{results.health ? <HealthResult result={results.health} /> : null}<OperationResult result={destructiveResults.restart} /></>}><ActionButton loading={loading.health} onClick={() => void runAction("health", api.runMaintenanceHealthCheck)}>Check APIs</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "restart"} onClick={() => setModal(modalFor("restart"))}>Restart HCI</ActionButton></Card>
-      <Card title="HCI Update" icon={GitBranch} body={versionBody} result={<><ErrorPanel message={errors.updates} />{results.updates ? <UpdatesResult result={results.updates} /> : null}<OperationResult result={destructiveResults.updateAll} /><OperationResult result={destructiveResults.rollback} /></>}><ActionButton loading={loading.updates} onClick={() => void runAction("updates", api.checkMaintenanceUpdates)}>Check Updates</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "updateAll"} onClick={() => setModal(modalFor("updateAll"))}>Update All</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "rollback"} onClick={() => setModal(modalFor("rollback"))}>Rollback</ActionButton></Card>
+      <Card title="HCI Update" icon={GitBranch} body={hciBody} result={<><ErrorPanel message={errors.updates} />{hciCheckFailed ? <div className="mb-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}<HciStatusRows status={hciStatus} />{hciLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hciLastChecked}</div> : null}<OperationResult result={destructiveResults.updateAll} /><OperationResult result={destructiveResults.rollback} /></>}><ActionButton loading={hciChecking} onClick={() => void checkHciStatus()}>Check Updates</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "updateAll"} onClick={() => setModal(modalFor("updateAll"))}>Update All</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "rollback"} onClick={() => setModal(modalFor("rollback"))}>Rollback</ActionButton></Card>
       <Card title="Doctor" icon={Stethoscope} body="Run diagnostics" result={<><ErrorPanel message={errors.doctor} />{results.doctor ? <DoctorResultPanel result={results.doctor} /> : null}<AutoFixResult result={destructiveResults.autoFix} /></>}><ActionButton loading={loading.doctor} onClick={() => void runAction("doctor", api.runMaintenanceDoctor)}>Run Diagnose</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "autoFix"} onClick={() => setModal(modalFor("autoFix"))}>Auto-Fix</ActionButton></Card>
       <Card title="Dump" icon={FileDown} body="Setup summary for debugging" result={<><ErrorPanel message={errors.dump} />{results.dump ? <FileResult label="Dump created" filename={results.dump.filename} size={results.dump.size_bytes} href={results.dump.download_url} /> : null}</>}><ActionButton loading={loading.dump} onClick={() => void runAction("dump", api.generateMaintenanceDump)}>Generate Dump</ActionButton></Card>
       <Card title="Hermes Update" icon={RefreshCw} body={hermesBody} result={<><OperationResult result={destructiveResults.updateHermes} />{hermesLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hermesLastChecked}</div> : null}{hermesCheckFailed ? <div className="mt-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}{gatewayStatusLine ? <div className={cn("mt-2 text-[11px]", gatewayRestartState === "success" ? "text-emerald-400" : gatewayRestartState === "timeout" || gatewayRestartState === "error" ? "text-[#ffbd38]" : "text-foreground/55")}>{gatewayStatusLine}</div> : null}</>}><ActionButton disabled={hermesButtonsDisabled} loading={hermesChecking} onClick={() => void checkHermesStatus()}>Check Update</ActionButton><ActionButton disabled={hermesButtonsDisabled} loading={destructiveLoading === "updateHermes"} onClick={() => setModal(modalFor("updateHermes"))}>Update Hermes</ActionButton><ActionButton variant="warning" disabled={hermesButtonsDisabled} loading={destructiveLoading === "restartGateway"} onClick={() => setModal(modalFor("restartGateway"))}>Restart Gateway</ActionButton></Card>
