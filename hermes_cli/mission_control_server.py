@@ -1023,32 +1023,324 @@ def _build_mission_control(dry_run: bool = False) -> tuple[bool, str]:
     return ok_build, install_log + "\n" + build_log
 
 
-def _operation_update_all(dry_run: bool = False) -> dict[str, Any]:
-    snapshot = take_snapshot("update-all")
-    logs: list[str] = []
-    ok = True
-    error = None
-    if dry_run:
-        logs.append("dry_run: git fetch/pull/build/restart skipped")
-    elif _has_dirty_worktree(PROJECT_ROOT):
-        ok = False; error = "Mission Control working tree is dirty; refusing git pull/reset."
-    else:
-        for args in (["git", "fetch"], ["git", "pull", "--ff-only"]):
-            step_ok, log = _run_operation_command(args, PROJECT_ROOT, timeout=120)
-            logs.append(log)
-            if not step_ok:
-                ok = False; error = f"Command failed: {' '.join(args)}"; break
-        if ok:
-            build_ok, build_log = _build_mission_control(False)
-            logs.append(build_log); ok = build_ok
-            if not ok: error = "Mission Control build failed"
-        if ok:
-            _schedule_process_exit()
-            logs.append("Mission Control restart scheduled")
-    log = "\n".join(logs)
-    _audit_maintenance_action("update-all", snapshot=snapshot, ok=ok, log=log)
-    return _maintenance_response(ok, "Update All complete" if ok else "Update All failed", snapshot=snapshot, log=log, error=error, extra={"commit": _repo_version(PROJECT_ROOT).get("commit")})
+class UpdateAllRequest(BaseModel):
+    rebuild_mission_control: bool | None = None
+    update_hermes_agent: bool | None = None
 
+
+def _update_jobs_dir() -> Path:
+    return get_mission_control_home() / "update-jobs"
+
+
+def _update_all_lock_path() -> Path:
+    return get_mission_control_home() / ".update-all.lock"
+
+
+def _new_update_all_step(name: str) -> dict[str, Any]:
+    return {"name": name, "status": "pending", "started_at": None, "completed_at": None, "log_excerpt": ""}
+
+
+def _write_update_all_job(job: dict[str, Any]) -> None:
+    jobs_dir = _update_jobs_dir()
+    jobs_dir.mkdir(parents=True, exist_ok=True)
+    path = jobs_dir / f"{job['job_id']}.json"
+    tmp = path.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(job, indent=2, sort_keys=True), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_update_all_job(job_id: str) -> dict[str, Any] | None:
+    if not re.fullmatch(r"[0-9a-fA-F-]{32,36}", job_id or ""):
+        return None
+    path = _update_jobs_dir() / f"{job_id}.json"
+    if not path.exists():
+        return None
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+
+def _most_recent_unfinished_update_all_job(max_age_seconds: int = 600) -> dict[str, Any] | None:
+    jobs_dir = _update_jobs_dir()
+    if not jobs_dir.exists():
+        return None
+    now = time.time()
+    candidates = []
+    for path in jobs_dir.glob("*.json"):
+        try:
+            if now - path.stat().st_mtime > max_age_seconds:
+                continue
+            job = json.loads(path.read_text(encoding="utf-8"))
+            if job.get("phase") not in {"completed", "failed"}:
+                candidates.append((path.stat().st_mtime, job))
+        except Exception:
+            continue
+    if not candidates:
+        return None
+    return sorted(candidates, key=lambda item: item[0], reverse=True)[0][1]
+
+
+def _set_update_all_step(job: dict[str, Any], name: str, status: str, *, log: str = "", phase: str | None = None, started: bool = False, completed: bool = False) -> None:
+    now = _utc_now_iso()
+    for step in job["steps"]:
+        if step["name"] == name:
+            if started and not step.get("started_at"):
+                step["started_at"] = now
+            if completed:
+                step["completed_at"] = now
+            step["status"] = status
+            if log:
+                step["log_excerpt"] = _log_tail(_redact_text(log), 40)
+            break
+    if phase:
+        job["phase"] = phase
+    _write_update_all_job(job)
+
+
+def _release_update_all_lock() -> None:
+    try:
+        _update_all_lock_path().unlink(missing_ok=True)
+    except Exception:
+        LOG.exception("Failed to release update-all lock")
+
+
+def _acquire_update_all_lock(job_id: str) -> tuple[bool, str | None]:
+    lock_path = _update_all_lock_path()
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    now = time.time()
+    if lock_path.exists():
+        try:
+            existing = json.loads(lock_path.read_text(encoding="utf-8"))
+            mtime = lock_path.stat().st_mtime
+            if now - mtime < 600:
+                return False, existing.get("job_id")
+        except Exception:
+            if now - lock_path.stat().st_mtime < 600:
+                return False, None
+        lock_path.unlink(missing_ok=True)
+    lock_path.write_text(json.dumps({"job_id": job_id, "created_at": _utc_now_iso()}), encoding="utf-8")
+    return True, None
+
+
+def _snapshot_state_for_update_all() -> str | None:
+    state_path = get_mission_control_state_path()
+    if not state_path.exists():
+        return None
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    dest = state_path.with_name(f"state.json.pre-update-all-{stamp}")
+    shutil.copy2(state_path, dest)
+    return str(dest)
+
+
+def _promote_mission_control_dist() -> tuple[bool, str]:
+    src = PROJECT_ROOT / "hermes_cli" / "mission_control_dist"
+    dest = MISSION_CONTROL_DIST
+    if not (src / "build-manifest.json").exists():
+        return False, f"build-manifest.json missing from {src}"
+    dest.mkdir(parents=True, exist_ok=True)
+    for item in src.iterdir():
+        target = dest / item.name
+        if item.is_dir():
+            if target.exists():
+                shutil.rmtree(target)
+            shutil.copytree(item, target)
+        else:
+            shutil.copy2(item, target)
+    if not (dest / "build-manifest.json").exists():
+        return False, f"build-manifest.json missing from {dest} after copy"
+    return True, f"Promoted Mission Control dist to {dest}"
+
+
+def _find_mission_control_launch_label() -> str:
+    labels = _launchctl_labels()
+    if "com.hermes.mission-control-9120" in labels:
+        return "com.hermes.mission-control-9120"
+    candidate = next((item for item in labels if re.fullmatch(r"com\.hermes\.mission-control.*", item)), None)
+    if candidate:
+        return candidate
+    roots = [Path.home() / "Library" / "LaunchAgents", Path("/Library/LaunchAgents")]
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*.plist")):
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            if "9120" in text:
+                label = _label_from_plist(path)
+                if label:
+                    return label
+    return "com.hermes.mission-control-9120"
+
+
+def _schedule_mission_control_launchagent_restart(label: str) -> None:
+    subprocess.Popen(
+        ["sh", "-c", f"sleep 2 && launchctl kickstart -k gui/$(id -u)/{shlex_quote(label)}"],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+        close_fds=True,
+    )
+
+
+def shlex_quote(value: str) -> str:
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _wait_for_gateway_env(timeout_seconds: float = 12.0) -> tuple[bool, str]:
+    deadline = time.time() + timeout_seconds
+    last_error = ""
+    while time.time() < deadline:
+        try:
+            with urllib.request.urlopen("http://localhost:9119/env", timeout=1.0) as response:
+                response.read(128)
+                if int(response.status) == 200:
+                    return True, "Hermes Agent responded on http://localhost:9119/env"
+        except Exception as exc:
+            last_error = str(exc)
+        time.sleep(0.5)
+    return False, f"Hermes Agent did not respond within {timeout_seconds:.0f}s: {last_error}"
+
+
+def _uv_executable() -> str:
+    return shutil.which("uv") or "/Users/hermes-agent/.local/bin/uv"
+
+
+def _operation_update_all_v2(body: UpdateAllRequest | None = None) -> tuple[int, dict[str, Any]]:
+    current = _maintenance_hci_status(PROJECT_ROOT)
+    rebuild_mc = current["mission_control"].get("status") != "in_sync" if body is None or body.rebuild_mission_control is None else bool(body.rebuild_mission_control)
+    update_ha = current["hermes_agent"].get("status") != "in_sync" if body is None or body.update_hermes_agent is None else bool(body.update_hermes_agent)
+    job_id = str(uuid.uuid4())
+    acquired, existing_job_id = _acquire_update_all_lock(job_id)
+    if not acquired:
+        return 409, {"ok": False, "job_id": existing_job_id, "message": "Update All already running"}
+    steps = [_new_update_all_step("rebuild_mc"), _new_update_all_step("reinstall_ha"), _new_update_all_step("restart_ha"), _new_update_all_step("restart_mc")]
+    job: dict[str, Any] = {
+        "job_id": job_id,
+        "started_at": _utc_now_iso(),
+        "completed_at": None,
+        "phase": "pending",
+        "steps": steps,
+        "requested": {"rebuild_mission_control": rebuild_mc, "update_hermes_agent": update_ha},
+        "state_snapshot": None,
+    }
+    try:
+        job["state_snapshot"] = _snapshot_state_for_update_all()
+    except Exception as exc:
+        job["state_snapshot_error"] = str(exc)
+    _write_update_all_job(job)
+    completed_steps: list[str] = []
+    scheduled_mc_restart = False
+    try:
+        if rebuild_mc:
+            _set_update_all_step(job, "rebuild_mc", "running", phase="rebuilding_mc", started=True)
+            ok, build_log = _run_operation_command(["npm", "run", "build"], _mission_control_web_root(), timeout=300)
+            if ok:
+                promote_ok, promote_log = _promote_mission_control_dist()
+                build_log = f"{build_log}\n{promote_log}"
+                ok = promote_ok
+            if not ok:
+                _set_update_all_step(job, "rebuild_mc", "failed", log=build_log, phase="failed", completed=True)
+                job["completed_at"] = _utc_now_iso(); _write_update_all_job(job)
+                return 500, {"ok": False, "job_id": job_id, "message": "Mission Control rebuild failed", "summary_url": f"/api/mission-control/maintenance/update-all/status?job_id={job_id}"}
+            _set_update_all_step(job, "rebuild_mc", "ok", log=build_log, completed=True)
+            completed_steps.append("rebuild_mc")
+        else:
+            _set_update_all_step(job, "rebuild_mc", "skipped", completed=True)
+
+        if update_ha:
+            _set_update_all_step(job, "reinstall_ha", "running", phase="installing_ha", started=True)
+            ok, install_log = _run_operation_command([_uv_executable(), "pip", "install", "--python", "/Users/hermes-agent/.hermes/hermes-agent/venv/bin/python", "-e", str(PROJECT_ROOT)], PROJECT_ROOT, timeout=300)
+            if not ok:
+                _set_update_all_step(job, "reinstall_ha", "failed", log=install_log, phase="failed", completed=True)
+                job["completed_at"] = _utc_now_iso(); _write_update_all_job(job)
+                return 500, {"ok": False, "job_id": job_id, "message": "Hermes Agent reinstall failed", "summary_url": f"/api/mission-control/maintenance/update-all/status?job_id={job_id}"}
+            _set_update_all_step(job, "reinstall_ha", "ok", log=install_log, completed=True)
+            completed_steps.append("reinstall_ha")
+
+            _set_update_all_step(job, "restart_ha", "running", phase="restarting_ha", started=True)
+            restart_payload = _operation_restart_gateway()
+            wait_ok, wait_log = _wait_for_gateway_env(12.0)
+            restart_log = f"{json.dumps(restart_payload, sort_keys=True)}\n{wait_log}"
+            if not restart_payload.get("ok") or not wait_ok:
+                _set_update_all_step(job, "restart_ha", "failed", log=restart_log, phase="failed", completed=True)
+                job["completed_at"] = _utc_now_iso(); _write_update_all_job(job)
+                return 500, {"ok": False, "job_id": job_id, "message": "Hermes Agent restart failed", "summary_url": f"/api/mission-control/maintenance/update-all/status?job_id={job_id}"}
+            _set_update_all_step(job, "restart_ha", "ok", log=restart_log, completed=True)
+            completed_steps.append("restart_ha")
+        else:
+            _set_update_all_step(job, "reinstall_ha", "skipped", completed=True)
+            _set_update_all_step(job, "restart_ha", "skipped", completed=True)
+
+        if rebuild_mc:
+            label = _find_mission_control_launch_label()
+            _set_update_all_step(job, "restart_mc", "scheduled", phase="mc_restart_scheduled", log=f"launchctl label {label}", started=True, completed=True)
+            _schedule_mission_control_launchagent_restart(label)
+            completed_steps.append("restart_mc")
+            scheduled_mc_restart = True
+        else:
+            _set_update_all_step(job, "restart_mc", "skipped", completed=True)
+            job["phase"] = "completed"
+            job["completed_at"] = _utc_now_iso()
+            _write_update_all_job(job)
+        _audit_maintenance_action("update-all", snapshot=None, ok=True, log=json.dumps({"job_id": job_id, "steps_completed": completed_steps}))
+        return 200, {"ok": True, "job_id": job_id, "scheduled_mc_restart": scheduled_mc_restart, "steps_completed": completed_steps, "summary_url": f"/api/mission-control/maintenance/update-all/status?job_id={job_id}"}
+    except Exception as exc:
+        job["phase"] = "failed"
+        job["completed_at"] = _utc_now_iso()
+        job["error"] = str(exc)
+        _write_update_all_job(job)
+        _audit_maintenance_action("update-all", snapshot=None, ok=False, log=str(exc))
+        return 500, {"ok": False, "job_id": job_id, "message": "Update All failed", "error": _redact_text(str(exc)), "summary_url": f"/api/mission-control/maintenance/update-all/status?job_id={job_id}"}
+    finally:
+        _release_update_all_lock()
+
+
+def _operation_update_all(dry_run: bool = False) -> dict[str, Any]:
+    if dry_run:
+        return _maintenance_response(True, "Update All dry run", log="dry_run: update-all v2 skipped")
+    status_code, payload = _operation_update_all_v2(None)
+    if status_code >= 400:
+        return _maintenance_response(False, payload.get("message", "Update All failed"), error=payload.get("error"), extra=payload)
+    return _maintenance_response(True, "Update All dispatched", extra=payload)
+
+
+def _update_all_status_payload(job_id: str | None = None) -> tuple[int, dict[str, Any]]:
+    job = _read_update_all_job(job_id) if job_id else _most_recent_unfinished_update_all_job()
+    if not job:
+        return 404, {"ok": False, "message": "Unknown update-all job"}
+    current_status = _maintenance_hci_status(PROJECT_ROOT)
+    if job.get("phase") == "mc_restart_scheduled":
+        restart_step = next((step for step in job.get("steps", []) if step.get("name") == "restart_mc"), {})
+        scheduled_at = restart_step.get("started_at") or restart_step.get("completed_at")
+        schedule_age = 0.0
+        if scheduled_at:
+            try:
+                schedule_age = (datetime.now(timezone.utc) - datetime.fromisoformat(str(scheduled_at).replace("Z", "+00:00"))).total_seconds()
+            except Exception:
+                schedule_age = 0.0
+        mc_ok = current_status.get("mission_control", {}).get("status") == "in_sync"
+        ha_required = bool(job.get("requested", {}).get("update_hermes_agent"))
+        ha_ok = current_status.get("hermes_agent", {}).get("status") == "in_sync" if ha_required else True
+        if schedule_age >= 4.0 and mc_ok and ha_ok:
+            job["phase"] = "completed"
+            job["completed_at"] = job.get("completed_at") or _utc_now_iso()
+            for step in job.get("steps", []):
+                if step.get("name") == "restart_mc" and step.get("status") == "scheduled":
+                    step["status"] = "ok"
+                    step["completed_at"] = step.get("completed_at") or _utc_now_iso()
+            _write_update_all_job(job)
+    return 200, {
+        "job_id": job["job_id"],
+        "started_at": job.get("started_at"),
+        "completed_at": job.get("completed_at"),
+        "phase": job.get("phase", "pending"),
+        "steps": job.get("steps", []),
+        "current_hci_status": current_status,
+    }
 
 def _operation_rollback(target_commit: str | None = None, dry_run: bool = False) -> dict[str, Any]:
     snapshot = take_snapshot("rollback")
@@ -3003,6 +3295,18 @@ async def maintenance_restart_hci(dry_run: bool = False) -> dict[str, Any]:
         _schedule_process_exit(0.25)
     _audit_maintenance_action("restart-hci", snapshot=None, ok=True, log=log)
     return _maintenance_response(True, "Mission Control restart dispatched", log=log)
+
+
+@app.post("/api/mission-control/maintenance/update-all")
+async def mission_control_maintenance_update_all(body: UpdateAllRequest | None = None) -> JSONResponse:
+    status_code, payload = await asyncio.to_thread(_operation_update_all_v2, body)
+    return JSONResponse(status_code=status_code, content=payload)
+
+
+@app.get("/api/mission-control/maintenance/update-all/status")
+async def mission_control_maintenance_update_all_status(job_id: str | None = None) -> JSONResponse:
+    status_code, payload = await asyncio.to_thread(_update_all_status_payload, job_id)
+    return JSONResponse(status_code=status_code, content=payload)
 
 
 @app.post("/api/maintenance/update-all")

@@ -21,6 +21,8 @@ vi.mock("@/lib/api", () => ({
     createMaintenanceBackup: vi.fn(),
     restartMissionControl: vi.fn(),
     updateAllMaintenance: vi.fn(),
+    startUpdateAllMaintenance: vi.fn(),
+    getUpdateAllMaintenanceStatus: vi.fn(),
     rollbackMaintenance: vi.fn(),
     autoFixMaintenance: vi.fn(),
     updateHermesMaintenance: vi.fn(),
@@ -57,6 +59,7 @@ beforeEach(() => {
     status: "ahead",
   });
   vi.mocked(api.restartGatewayMaintenance).mockResolvedValue({ ok: true, method: "launchctl_kickstart", label: "ai.hermes.gateway", initiated_at: "2026-05-16T12:00:00Z" });
+  vi.mocked(api.getUpdateAllMaintenanceStatus).mockRejectedValue(new Error("no active update job"));
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -88,7 +91,7 @@ describe("Maintenance Hermes Update releases link", () => {
 
     const expectations = [
       ["Restart HCI", "RESTART HCI"],
-      ["Update All", "UPDATE MISSION CONTROL"],
+      ["Update All", "UPDATE ALL"],
       ["Rollback", "ROLLBACK MISSION CONTROL"],
       ["Auto-Fix", "AUTO-FIX"],
       ["Update Hermes", "HERMES UPDATE"],

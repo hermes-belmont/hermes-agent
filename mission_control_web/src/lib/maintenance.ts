@@ -35,6 +35,27 @@ export type HciStatus = {
   checked_at: string;
 };
 
+
+export type UpdateAllStartResult = {
+  ok: boolean;
+  job_id: string;
+  scheduled_mc_restart: boolean;
+  steps_completed: string[];
+  summary_url: string;
+  message?: string;
+};
+
+export type UpdateAllStepStatus = "ok" | "failed" | "skipped" | "pending" | "running" | "scheduled";
+
+export type UpdateAllJobStatus = {
+  job_id: string;
+  started_at: string;
+  completed_at: string | null;
+  phase: "pending" | "rebuilding_mc" | "installing_ha" | "restarting_ha" | "mc_restart_scheduled" | "completed" | "failed";
+  steps: { name: "rebuild_mc" | "reinstall_ha" | "restart_ha" | "restart_mc"; status: UpdateAllStepStatus; started_at: string | null; completed_at: string | null; log_excerpt: string }[];
+  current_hci_status: HciStatus;
+};
+
 export type RestartGatewayResult = {
   ok: boolean;
   method?: "launchctl_kickstart" | "launchctl_reload" | "hermes_cli";

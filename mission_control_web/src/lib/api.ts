@@ -1,4 +1,4 @@
-import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResult, GitCommitOption, HealthCheckResult, HciStatus, HermesStatus, MaintenanceVersion, RestartGatewayResult, UpdateCheckResult } from "@/lib/maintenance";
+import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResult, GitCommitOption, HealthCheckResult, HciStatus, HermesStatus, MaintenanceVersion, RestartGatewayResult, UpdateAllJobStatus, UpdateAllStartResult, UpdateCheckResult } from "@/lib/maintenance";
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
@@ -121,6 +121,8 @@ export const api = {
   createMaintenanceBackup: () => fetchJSON<BackupResult>("/api/maintenance/backup", { method: "POST" }),
   restartMissionControl: () => fetchJSON<DestructiveMaintenanceResult>("/api/maintenance/restart-hci", { method: "POST" }),
   updateAllMaintenance: () => fetchJSON<DestructiveMaintenanceResult>("/api/maintenance/update-all", { method: "POST" }),
+  startUpdateAllMaintenance: () => fetchJSON<UpdateAllStartResult>("/api/mission-control/maintenance/update-all", { method: "POST" }),
+  getUpdateAllMaintenanceStatus: (jobId?: string) => fetchJSON<UpdateAllJobStatus>(`/api/mission-control/maintenance/update-all/status${jobId ? `?job_id=${encodeURIComponent(jobId)}` : ""}`),
   rollbackMaintenance: (target_commit?: string) => fetchJSON<DestructiveMaintenanceResult>("/api/maintenance/rollback", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
