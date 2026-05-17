@@ -31,6 +31,7 @@ describe("resolveHashView", () => {
     expect(resolveHashView("#/settings/themes").settingsSection).toBe("themes");
     expect(resolveHashView("#/settings/desktop-remote").settingsSection).toBe("desktop-remote");
     expect(resolveHashView("#/settings/keys").settingsSection).toBe("keys");
+    expect(resolveHashView("#/settings/config").settingsSection).toBe("config");
     expect(resolveHashView("#/settings/account").settingsSection).toBe("account");
     expect(resolveHashView("#/settings/models").redirectToModels).toBe(false);
   });

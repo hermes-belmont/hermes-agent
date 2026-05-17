@@ -310,9 +310,12 @@ export default function App() {
   const location = useLocation();
   const { pathname } = location;
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
-  const isEnvEmbed = normalizedPath === "/env" && new URLSearchParams(location.search).get("embed") === "1";
-  const isModelsEmbed = normalizedPath === "/models" && new URLSearchParams(location.search).get("embed") === "1";
-  const { manifests, loading: pluginsLoading } = usePlugins(!(isEnvEmbed || isModelsEmbed));
+  const searchParams = new URLSearchParams(location.search);
+  const isEnvEmbed = normalizedPath === "/env" && searchParams.get("embed") === "1";
+  const isModelsEmbed = normalizedPath === "/models" && searchParams.get("embed") === "1";
+  const isConfigEmbed = normalizedPath === "/config" && searchParams.get("embed") === "1";
+  const isAnyEmbed = isEnvEmbed || isModelsEmbed || isConfigEmbed;
+  const { manifests, loading: pluginsLoading } = usePlugins(!isAnyEmbed);
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
@@ -416,12 +419,13 @@ export default function App() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
-  if (isEnvEmbed || isModelsEmbed) {
-    const EmbedPage = isModelsEmbed ? ModelsPage : EnvPage;
+  if (isAnyEmbed) {
+    const EmbedPage = isModelsEmbed ? ModelsPage : isConfigEmbed ? ConfigPage : EnvPage;
+    const embedName = isModelsEmbed ? "models" : isConfigEmbed ? "config" : "env";
     return (
       <div
         data-layout-variant={layoutVariant}
-        data-dashboard-embed={isModelsEmbed ? "models" : "env"}
+        data-dashboard-embed={embedName}
         className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
       >
         <Backdrop />

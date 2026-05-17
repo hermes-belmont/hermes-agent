@@ -1,20 +1,22 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Download, ImageIcon, KeyRound, Loader2, Lock, Monitor, Palette, RefreshCw, Server, Upload, UserCircle, X } from "lucide-react";
+import { Check, Download, FileCode, ImageIcon, KeyRound, Loader2, Lock, Monitor, Palette, RefreshCw, Server, Upload, UserCircle, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { resizeAvatarFileToDataUri } from "@/lib/avatar";
 import { DesktopRemoteSettings } from "@/components/DesktopRemoteSettings";
 import { applyBackground, setStoredBackground, type BackgroundId, type UserBackground } from "@/lib/backgrounds";
 import type { AccountRecord, HermesProfile } from "@/lib/types";
 import { CURATED_THEMES, getThemeDefinition, type CuratedThemeId } from "@/lib/themes";
+import { navigateToSettingsSection } from "@/lib/hash-routing";
 import { cn } from "@/lib/utils";
 
-export type SettingsSection = "models" | "themes" | "desktop-remote" | "keys" | "account";
+export type SettingsSection = "models" | "themes" | "desktop-remote" | "keys" | "config" | "account";
 
 const SECTIONS: Array<{ id: SettingsSection; label: string; icon: typeof Server }> = [
   { id: "models", label: "Models", icon: Server },
   { id: "themes", label: "Themes", icon: Palette },
   { id: "desktop-remote", label: "Desktop & Remote", icon: Monitor },
   { id: "keys", label: "Keys", icon: KeyRound },
+  { id: "config", label: "Config", icon: FileCode },
   { id: "account", label: "Account", icon: UserCircle },
 ];
 
@@ -552,6 +554,19 @@ function KeysPage() {
   );
 }
 
+function ConfigPage() {
+  return (
+    <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/40">
+      <iframe
+        title="Hermes Agent Config"
+        src="http://localhost:9119/config?embed=1"
+        className="min-h-0 w-full flex-1 border-0 bg-transparent"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+      />
+    </div>
+  );
+}
+
 export function SettingsView({ section, onSelectSection, activeTheme, onSelectTheme, activeBackground, onSelectBackground, account, onAccountChange, onOpenInstall }: Props) {
   return (
     <section className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
@@ -564,7 +579,10 @@ export function SettingsView({ section, onSelectSection, activeTheme, onSelectTh
             <button
               key={item.id}
               type="button"
-              onClick={() => onSelectSection(item.id)}
+              onClick={() => {
+                onSelectSection(item.id);
+                navigateToSettingsSection(item.id);
+              }}
               className={cn(
                 "flex w-full items-center gap-[9px] rounded-lg border border-transparent px-2.5 py-2 text-left transition",
                 active
@@ -588,6 +606,8 @@ export function SettingsView({ section, onSelectSection, activeTheme, onSelectTh
           <DesktopRemoteSettings onOpenInstall={onOpenInstall} />
         ) : section === "keys" ? (
           <KeysPage />
+        ) : section === "config" ? (
+          <ConfigPage />
         ) : (
           <AccountPage key={`${account.display_name}-${account.avatar_color}-${account.avatar_image ?? "none"}-${account.preferences.timezone}`} account={account} onAccountChange={onAccountChange} />
         )}

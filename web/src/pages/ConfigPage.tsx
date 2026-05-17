@@ -125,13 +125,9 @@ export default function ConfigPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { t } = useI18n();
   const { setEnd } = usePageHeader();
-
-  useLayoutEffect(() => {
-    if (!config || !schema) {
-      setEnd(null);
-      return;
-    }
-    setEnd(
+  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "1";
+  const searchControl = useMemo(
+    () => (
       <div className="relative w-full min-w-0 sm:max-w-xs">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input
@@ -151,10 +147,19 @@ export default function ConfigPage() {
             <X />
           </Button>
         )}
-      </div>,
-    );
+      </div>
+    ),
+    [searchQuery, t.common.clear, t.common.search],
+  );
+
+  useLayoutEffect(() => {
+    if (isEmbed || !config || !schema) {
+      setEnd(null);
+      return;
+    }
+    setEnd(searchControl);
     return () => setEnd(null);
-  }, [config, schema, searchQuery, setEnd, t.common.clear, t.common.search]);
+  }, [config, isEmbed, schema, searchControl, setEnd]);
 
   function prettyCategoryName(cat: string): string {
     const key = cat as keyof typeof t.config.categories;
@@ -417,13 +422,14 @@ export default function ConfigPage() {
       <PluginSlot name="config:top" />
       <Toast toast={toast} />
 
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <Settings2 className="h-4 w-4 text-muted-foreground" />
           <code className="text-xs text-muted-foreground bg-muted/50 px-2 py-0.5">
             {configPath ?? t.config.configPath}
           </code>
         </div>
+        {isEmbed && <div className="min-w-56 flex-1 sm:max-w-xs">{searchControl}</div>}
         <div className="flex items-center gap-1.5">
           <Button
             ghost
