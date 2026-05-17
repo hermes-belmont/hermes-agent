@@ -11,8 +11,8 @@ describe("PWA manifest", () => {
     const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
 
     expect(manifest).toMatchObject({
-      name: "Umbrella Mission Control",
-      short_name: "Mission Control",
+      name: "Hermes Workspace (Corporate)",
+      short_name: "Hermes Workspace",
       description: "Operator console for Umbrella Holdings agent network",
       start_url: "/",
       scope: "/",

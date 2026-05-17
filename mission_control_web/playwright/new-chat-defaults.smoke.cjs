@@ -5,9 +5,16 @@ const BASE_URL = 'http://127.0.0.1:9120';
 const APP_DEVELOPER_ID = 'agent_0d5dac8717';
 const HERMES_DIRECT_ID = 'agent_9afe71830d';
 const MISSION_CONTROL_PROJECT_ID = 'project-mission-control';
+const DEFAULT_MODEL_STORAGE_KEY = 'mc.defaultModel.v1';
+
+async function getSettingsDefaultModel(page) {
+  const model = await page.evaluate((key) => localStorage.getItem(key), DEFAULT_MODEL_STORAGE_KEY);
+  return model || 'gpt-5.5';
+}
 
 test('sidebar New Chat defaults to Hermes Direct and no project', async ({ browser }) => {
   const page = await setupAuthedPage(browser, BASE_URL);
+  const defaultModel = await getSettingsDefaultModel(page);
 
   await page.evaluate((projectId) => {
     localStorage.setItem('mission-control-active-project-v1', projectId);
@@ -31,9 +38,9 @@ test('sidebar New Chat defaults to Hermes Direct and no project', async ({ brows
   await page.getByRole('button', { name: 'New Chat' }).click();
 
   await expect(page.getByRole('heading', { name: 'Begin a session' })).toBeVisible();
-  await expect(page.getByText('Hermes (Direct) · gpt-5.5')).toBeVisible();
+  await expect(page.getByText(`Hermes (Direct) · ${defaultModel}`)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Hermes (Direct)', exact: true })).toBeVisible();
-  await expect(page.getByTestId('model-chip')).toContainText('gpt-5.5');
+  await expect(page.getByTestId('model-chip')).toContainText(defaultModel);
   await expect(page.locator('[data-testid="chat-project-label"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="project-row"][data-active="true"]')).toHaveCount(0);
 
@@ -61,7 +68,7 @@ test('sidebar New Chat defaults to Hermes Direct and no project', async ({ brows
   await page.getByRole('button', { name: 'Cancel' }).click();
 
   await page.getByRole('button', { name: 'New Chat' }).click();
-  await expect(page.getByText('Hermes (Direct) · gpt-5.5')).toBeVisible();
+  await expect(page.getByText(`Hermes (Direct) · ${defaultModel}`)).toBeVisible();
   await expect(page.locator('[data-testid="chat-project-label"]')).toHaveCount(0);
   await expect(page.locator('[data-testid="project-row"][data-active="true"]')).toHaveCount(0);
 

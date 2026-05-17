@@ -172,6 +172,16 @@ function findSidebarNewChatDefaultAgent(agents: AgentRecord[], entityTree: Entit
     ?? null;
 }
 
+function resolveDefaultChatModel(settingsDefaultModel: string | null, agent: AgentRecord | null, previousModel: string): string {
+  if (settingsDefaultModel) return settingsDefaultModel;
+  if (agent?.preferred_model) return agent.preferred_model;
+  if (previousModel) {
+    console.warn(`Settings default model and agent preferred_model not found, falling back to ${previousModel}`);
+    return previousModel;
+  }
+  return "gpt-5.5";
+}
+
 function InlineNotice({ tone, title, detail, icon, action }: { tone: NoticeTone; title: string; detail?: string; icon?: ReactNode; action?: ReactNode }) {
   const toneClass = {
     info: "border-sky-300/20 bg-sky-300/8 text-sky-100",
@@ -883,7 +893,7 @@ function HermesChatView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hasThread = messages.length > 0;
   const displayProfile = activeAgent?.name ?? "default";
-  const profileModel = modelForAgent(activeAgent, activeModel);
+  const profileModel = activeModel;
   const selectorAgents = sortedAgentsForSelector(agents, entityTree);
   const [loadingPhrases, setLoadingPhrases] = useState<LoadingPhrase[]>([]);
   const [dragActive, setDragActive] = useState(false);
@@ -1114,20 +1124,45 @@ export default function App() {
   const [attachmentToast, setAttachmentToast] = useState("");
   const tempMessageIdRef = useRef(-1);
   const { send: sendChatStream } = useChatStream();
-  const loadBootstrap = useCallback(async (nextAgentId?: string | null, nextConversationId?: string | null) => {
+  const loadBootstrap = useCallback(async (nextAgentId?: string | null, nextConversationId?: string | null, applyDefaultChat = false) => {
+    const applyDefaultChatResolution = (response: BootstrapResponse) => {
+      const defaultAgent = findSidebarNewChatDefaultAgent(response.agents, response.entity_tree ?? []);
+      const fallbackAgent = response.agents[0] ?? null;
+      const nextAgent = defaultAgent ?? fallbackAgent;
+      if (!defaultAgent && fallbackAgent) console.warn(`Default agent 'Hermes (Direct)' not found, falling back to ${fallbackAgent.name}`);
+      if (nextAgent) {
+        setSelectedAgentId(nextAgent.id);
+        const defaultReasoning = reasoningLevelForAgent(nextAgent);
+        if (defaultReasoning) setReasoningLevel(defaultReasoning);
+      }
+      const settingsDefault = getDefaultModel();
+      setDefaultModelState(settingsDefault);
+      setModelPreference(resolveDefaultChatModel(settingsDefault, nextAgent, window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY) ?? ""));
+      setActiveProjectId(null);
+      try { window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY); } catch { /* ignore */ }
+    };
+
     setState("loading");
     setError("");
     try {
       const response = await api.getBootstrap();
       setBootstrap(response);
       const fallbackAgentId = response.agents.find((agent) => /app developer|hermes/i.test(agent.name))?.id ?? response.agents[0]?.id ?? null;
-      setSelectedAgentId((current) => nextAgentId ?? current ?? fallbackAgentId);
+      if (applyDefaultChat && typeof nextAgentId === "undefined" && typeof nextConversationId === "undefined") {
+        applyDefaultChatResolution(response);
+      } else {
+        setSelectedAgentId((current) => nextAgentId ?? current ?? fallbackAgentId);
+      }
       if (typeof nextConversationId !== "undefined") setSelectedConversationId(nextConversationId);
       setState("idle");
       return response;
     } catch (err) {
       setBootstrap(mockBootstrap);
-      setSelectedAgentId((current) => nextAgentId ?? current ?? mockBootstrap.agents[0]?.id ?? null);
+      if (applyDefaultChat && typeof nextAgentId === "undefined" && typeof nextConversationId === "undefined") {
+        applyDefaultChatResolution(mockBootstrap);
+      } else {
+        setSelectedAgentId((current) => nextAgentId ?? current ?? mockBootstrap.agents[0]?.id ?? null);
+      }
       if (typeof nextConversationId !== "undefined") setSelectedConversationId(nextConversationId);
       setState("idle");
       setError(err instanceof Error ? err.message : "Failed to load Mission Control");
@@ -1136,7 +1171,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    void loadBootstrap();
+    void loadBootstrap(undefined, undefined, true);
     void api.getAccount().then(setAccount).catch(() => undefined);
   }, [loadBootstrap]);
 
@@ -1223,7 +1258,7 @@ export default function App() {
   const selectedAgent = bootstrap?.agents.find((agent) => agent.id === selectedAgentId) ?? null;
   const catalogModels = bootstrap?.catalog.models ?? [];
   const selectedConversation = bootstrap?.conversations.find((conversation) => conversation.id === selectedConversationId) ?? null;
-  const activeModelPreference = selectedConversation?.preferred_model || modelPreference || selectedAgent?.preferred_model || defaultModel || catalogModels[0] || "gpt-5.5";
+  const activeModelPreference = selectedConversation?.preferred_model || modelPreference || defaultModel || selectedAgent?.preferred_model || catalogModels[0] || "gpt-5.5";
   void recentsTick;
   const recentsForPicker = getRecentsPadded(catalogModels, defaultModel ?? activeModelPreference);
   const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId && !project.archived) ?? null : null;
@@ -1255,6 +1290,9 @@ export default function App() {
         const defaultReasoning = reasoningLevelForAgent(nextAgent);
         if (defaultReasoning) setReasoningLevel(defaultReasoning);
       }
+      const settingsDefault = getDefaultModel();
+      setDefaultModelState(settingsDefault);
+      setModelPreference(resolveDefaultChatModel(settingsDefault, nextAgent, modelPreference));
       setMessages([]);
       setSelectedConversationId(null);
       setComposerText("");
@@ -1264,10 +1302,8 @@ export default function App() {
       setProfilesOpen(false);
       setReasoningOpen(false);
       setModelOpen(false);
-      setModelPreference("");
       try {
         window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
-        window.localStorage.removeItem(MODEL_PREFERENCE_STORAGE_KEY);
       } catch { /* ignore */ }
     }
   };
