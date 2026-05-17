@@ -1,21 +1,50 @@
 /** @vitest-environment jsdom */
 
-import { act } from "react";
+import React from "react";
+import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InstallModal } from "./InstallModal";
-import { NavigationRail } from "./NavigationRail";
+import { NavigationRail, type ProjectRecord } from "./NavigationRail";
+import type { ConversationRecord } from "@/lib/types";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 let host: HTMLDivElement;
 let root: Root;
 
-function renderRail(onOpenInstall = () => undefined) {
+const conversations: ConversationRecord[] = [
+  {
+    id: "conversation-1",
+    agent_id: "agent-1",
+    title: "Original conversation",
+    project_id: null,
+    updated_at: "2026-05-16T00:00:00.000Z",
+    last_message_at: "2026-05-16T00:01:00.000Z",
+    pinned: false,
+    starred: false,
+  },
+];
+
+const projects: ProjectRecord[] = [
+  {
+    id: "project-1",
+    name: "Project One",
+    starred: false,
+    archived: false,
+    createdAt: "2026-05-16T00:00:00.000Z",
+    updatedAt: "2026-05-16T00:00:00.000Z",
+  },
+];
+
+function renderRail(
+  onOpenInstall = () => undefined,
+  overrides: Partial<React.ComponentProps<typeof NavigationRail>> = {},
+) {
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
-  act(() => {
+  flushSync(() => {
     root.render(
       <NavigationRail
         activeView="new-chat"
@@ -25,6 +54,7 @@ function renderRail(onOpenInstall = () => undefined) {
         onOpenInstall={onOpenInstall}
         mobileOpen={false}
         onCloseMobile={() => undefined}
+        {...overrides}
       />,
     );
   });
@@ -33,7 +63,7 @@ function renderRail(onOpenInstall = () => undefined) {
 function clickButton(selector: string) {
   const button = host.querySelector<HTMLButtonElement>(selector);
   expect(button).toBeTruthy();
-  act(() => {
+  flushSync(() => {
     button?.click();
   });
 }
@@ -50,7 +80,7 @@ describe("NavigationRail footer settings links", () => {
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    flushSync(() => root.unmount());
     host.remove();
     window.location.hash = "#/";
   });
@@ -74,7 +104,7 @@ describe("NavigationRail footer settings links", () => {
   });
 
   it("renders the install desktop app download icon and invokes the install handler", () => {
-    act(() => root.unmount());
+    flushSync(() => root.unmount());
     host.remove();
     const onOpenInstall = vi.fn();
     renderRail(onOpenInstall);
@@ -82,6 +112,42 @@ describe("NavigationRail footer settings links", () => {
     clickButton('[aria-label="Install desktop app"]');
 
     expect(onOpenInstall).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("NavigationRail RECENTS conversation actions", () => {
+  afterEach(() => {
+    flushSync(() => root.unmount());
+    host.remove();
+  });
+
+  it("opens a click-driven sidebar menu with Rename, Move to project, and Delete in order", () => {
+    renderRail(undefined, { conversations, projects });
+
+    clickButton('[aria-label="Conversation actions for Original conversation"]');
+
+    const menu = host.querySelector('[data-testid="recents-action-menu"]');
+    expect(menu).toBeTruthy();
+    const labels = Array.from(menu?.querySelectorAll("button") ?? []).map((button) => button.textContent?.trim());
+    expect(labels).toEqual(["Rename", "Move to project", "Delete"]);
+  });
+
+  it("starts inline rename and selects the existing title", () => {
+    const onStartRenameConversation = vi.fn();
+    renderRail(undefined, {
+      conversations,
+      projects,
+      editingConversationId: "conversation-1",
+      onStartRenameConversation,
+    });
+
+    const input = host.querySelector<HTMLInputElement>('[data-testid="recents-rename-input"]');
+    expect(input).toBeTruthy();
+    flushSync(() => input?.focus());
+
+    expect(input?.value).toBe("Original conversation");
+    expect(input?.selectionStart).toBe(0);
+    expect(input?.selectionEnd).toBe("Original conversation".length);
   });
 });
 
@@ -93,12 +159,12 @@ describe("InstallModal states", () => {
   });
 
   afterEach(() => {
-    act(() => root.unmount());
+    flushSync(() => root.unmount());
     host.remove();
   });
 
   function renderModal(stateOverride: "native" | "safari" | "unsupported" | "installed") {
-    act(() => {
+    flushSync(() => {
       root.render(<InstallModal open onClose={() => undefined} stateOverride={stateOverride} />);
     });
   }

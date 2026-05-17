@@ -203,9 +203,9 @@ export const api = {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agent_id: agentId, title, project_id: projectId ?? null }),
     }),
-  updateConversation: (conversationId: string, patch: { title?: string; pinned?: boolean; starred?: boolean; agent_id?: string; project_id?: string | null; projectId?: string | null; preferred_model?: string | null }) =>
+  updateConversation: (conversationId: string, patch: { name?: string; title?: string; pinned?: boolean; starred?: boolean; agent_id?: string; project_id?: string | null; projectId?: string | null; preferred_model?: string | null }) =>
     fetchJSON<{ conversation: { id: string; title: string; pinned: boolean; starred?: boolean; project_id?: string | null } }>(`/api/mission-control/conversations/${encodeURIComponent(conversationId)}`, {
-      method: "PUT",
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(patch),
     }),

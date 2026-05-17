@@ -45,6 +45,7 @@ import { useChatStream } from "@/hooks/useChatStream";
 import { getDefaultModel, getRecentsPadded, promoteOnSend, RECENTS_STORAGE_KEY, DEFAULT_MODEL_STORAGE_KEY } from "@/lib/model-recents";
 import { navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
 import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
+import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 
 const ACTIVE_VIEW_STORAGE_KEY = "mission-control-active-view";
 const RAIL_COLLAPSED_STORAGE_KEY = "mission-control-rail-collapsed";
@@ -250,20 +251,16 @@ function ProjectEditModal({ project, onCancel, onSave }: { project: PendingProje
 }
 
 function DeleteConversationModal({ conversation, onCancel, onConfirm }: { conversation: PendingConversationDelete; onCancel: () => void; onConfirm: () => void }) {
-  if (!conversation) return null;
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="delete-conversation-title">
-      <div className="w-full max-w-md rounded-[28px] border border-red-400/25 bg-background/95 p-5 shadow-2xl">
-        <div id="delete-conversation-title" className="font-expanded text-sm uppercase tracking-[0.18em] text-red-200">Delete conversation?</div>
-        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          This will permanently delete <span className="text-foreground">{conversation.title}</span>. This cannot be undone.
-        </p>
-        <div className="mt-5 flex justify-end gap-2">
-          <Button variant="outline" onClick={onCancel}>Cancel</Button>
-          <Button className="border border-red-400/35 bg-red-500/15 text-red-100 hover:bg-red-500/25" onClick={onConfirm}>Delete conversation</Button>
-        </div>
-      </div>
-    </div>
+    <ConfirmActionModal
+      open={Boolean(conversation)}
+      onClose={onCancel}
+      onConfirm={onConfirm}
+      title="Delete Conversation"
+      body="This permanently deletes the conversation and all its messages. This cannot be undone."
+      confirmLabel="Delete"
+      riskLevel="high"
+    />
   );
 }
 
@@ -1335,7 +1332,7 @@ export default function App() {
     const cleanTitle = title.trim();
     setEditingConversationId(null);
     if (!cleanTitle || cleanTitle === conversation.title) return;
-    await api.updateConversation(conversation.id, { title: cleanTitle });
+    await api.updateConversation(conversation.id, { name: cleanTitle });
     await refreshAfterConversationUpdate();
   };
 
@@ -1359,9 +1356,15 @@ export default function App() {
     if (selectedConversationId === deletingId) {
       setSelectedConversationId(null);
       setMessages([]);
+      setComposerText("");
+      setChatError("");
+      setActiveProjectId(null);
+      setProjectDetailId(null);
+      setActiveView("new-chat");
+      if (typeof window !== "undefined") window.history.pushState(null, "", "/");
     }
     setPendingDeleteConversation(null);
-    await refreshAfterConversationUpdate();
+    await loadBootstrap(selectedAgentId, selectedConversationId === deletingId ? null : selectedConversationId);
   };
 
   const showAttachmentToast = (message: string) => {

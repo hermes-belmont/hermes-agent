@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { Activity, Archive, BellRing, Download, Ellipsis, Folder, Inbox, ListTodo, Menu, MessageSquarePlus, Pencil, RotateCcw, Settings, Settings2, Star, Sun, Trash2, Users, Wrench } from "lucide-react";
 import type { SettingsSection } from "@/components/SettingsView";
 import { navigateToSettingsSection } from "@/lib/hash-routing";
@@ -58,6 +59,8 @@ type RailContentProps = {
   onDeleteConversation?: (conversation: ConversationRecord) => void;
 };
 
+type MenuAction = "rename" | "move" | "delete";
+
 function ProjectRow({ project, active, collapsed, onSelect, onToggleStar, onEdit, onArchive, onDelete, onRestore }: {
   project: ProjectRecord;
   active: boolean;
@@ -110,32 +113,107 @@ function ProjectRow({ project, active, collapsed, onSelect, onToggleStar, onEdit
   );
 }
 
-function ConversationRow({ conversation, active, editing, onSelect, onToggleStar, onStartRename, onCommitRename, onCancelRename, onOpenChangeProject, onRemoveFromProject, onDelete }: {
+function ConversationRow({ conversation, active, editing, onSelect, onStartRename, onCommitRename, onCancelRename, onOpenChangeProject, onDelete }: {
   conversation: ConversationRecord;
   active: boolean;
   editing: boolean;
   onSelect?: (conversation: ConversationRecord) => void;
-  onToggleStar?: (conversation: ConversationRecord) => void;
   onStartRename?: (conversation: ConversationRecord) => void;
   onCommitRename?: (conversation: ConversationRecord, title: string) => void;
   onCancelRename?: () => void;
   onOpenChangeProject?: (conversation: ConversationRecord) => void;
-  onRemoveFromProject?: (conversation: ConversationRecord) => void;
   onDelete?: (conversation: ConversationRecord) => void;
 }) {
-  const projectId = conversation.project_id ?? conversation.projectId ?? null;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const cancelRenameRef = useRef(false);
+  const renameCommittedRef = useRef(false);
+  const title = conversation.title || "Untitled conversation";
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!rowRef.current?.contains(event.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [menuOpen]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    window.setTimeout(() => itemRefs.current[0]?.focus(), 0);
+  }, [menuOpen]);
+
+  const runAction = (action: MenuAction) => {
+    setMenuOpen(false);
+    if (action === "rename") onStartRename?.(conversation);
+    if (action === "move") onOpenChangeProject?.(conversation);
+    if (action === "delete") onDelete?.(conversation);
+  };
+
+  const onMenuKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const items = itemRefs.current.filter(Boolean) as HTMLButtonElement[];
+    const index = items.findIndex((item) => item === document.activeElement);
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      items[(index + 1 + items.length) % items.length]?.focus();
+    }
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      items[(index - 1 + items.length) % items.length]?.focus();
+    }
+    if (event.key === "Home") {
+      event.preventDefault();
+      items[0]?.focus();
+    }
+    if (event.key === "End") {
+      event.preventDefault();
+      items.at(-1)?.focus();
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      setMenuOpen(false);
+    }
+  };
+
+  const commitRename = (value: string) => {
+    if (cancelRenameRef.current || renameCommittedRef.current) {
+      cancelRenameRef.current = false;
+      return;
+    }
+    renameCommittedRef.current = true;
+    onCommitRename?.(conversation, value);
+  };
+
   return (
-    <div className="group/recent relative" data-testid="recent-row" data-conversation-id={conversation.id}>
+    <div ref={rowRef} className="group/recent relative" data-testid="recent-row" data-conversation-id={conversation.id}>
       {editing ? (
         <input
           autoFocus
-          defaultValue={conversation.title}
+          data-testid="recents-rename-input"
+          defaultValue={title}
+          onFocus={(event) => event.currentTarget.select()}
           onClick={(event) => event.stopPropagation()}
           onKeyDown={(event) => {
-            if (event.key === "Enter") onCommitRename?.(conversation, event.currentTarget.value);
-            if (event.key === "Escape") onCancelRename?.();
+            if (event.key === "Enter") {
+              event.preventDefault();
+              commitRename(event.currentTarget.value);
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              cancelRenameRef.current = true;
+              onCancelRename?.();
+            }
           }}
-          onBlur={(event) => onCommitRename?.(conversation, event.currentTarget.value)}
+          onBlur={(event) => commitRename(event.currentTarget.value)}
           className="h-8 w-full rounded-lg border border-[var(--warm-glow)] bg-background/80 px-2 text-[11px] text-foreground outline-none"
         />
       ) : (
@@ -147,22 +225,38 @@ function ConversationRow({ conversation, active, editing, onSelect, onToggleStar
             active && "border-[color-mix(in_srgb,var(--warm-glow)_25%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_8%,transparent)] text-foreground",
           )}
         >
-          <span className="min-w-0 flex-1 truncate text-[11px]">{conversation.title || "Untitled conversation"}</span>
+          <span className="min-w-0 flex-1 truncate text-[11px]">{title}</span>
         </button>
       )}
       {!editing && (
         <div className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 transition group-hover/recent:opacity-100 group-focus-within/recent:opacity-100">
-          <button type="button" aria-label={`Conversation actions for ${conversation.title}`} className="peer flex h-6 w-6 items-center justify-center rounded-md hover:bg-foreground/8">
+          <button
+            type="button"
+            aria-label={`Conversation actions for ${title}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={(event) => {
+              event.stopPropagation();
+              setMenuOpen((open) => !open);
+            }}
+            className="flex h-6 w-6 items-center justify-center rounded-md hover:bg-foreground/8 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--warm-glow)]"
+          >
             <Ellipsis className="h-3.5 w-3.5" />
           </button>
-          <div className="pointer-events-none absolute left-full top-0 z-50 ml-1 w-52 rounded-xl border border-foreground/10 bg-background/95 p-1 opacity-0 shadow-2xl backdrop-blur-xl transition peer-hover:pointer-events-auto peer-hover:opacity-100 hover:pointer-events-auto hover:opacity-100 focus-within:pointer-events-auto focus-within:opacity-100" data-testid="recents-action-menu">
-            <button type="button" data-conversation-action="star" onClick={() => onToggleStar?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Star className="h-3.5 w-3.5" />Star</button>
-            <button type="button" data-conversation-action="rename" onClick={() => onStartRename?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Pencil className="h-3.5 w-3.5" />Rename</button>
-            <button type="button" data-conversation-action="change-project" onClick={() => onOpenChangeProject?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6"><Folder className="h-3.5 w-3.5" />Change project</button>
-            <button type="button" data-conversation-action="remove-project" disabled={!projectId} onClick={() => onRemoveFromProject?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6 disabled:cursor-not-allowed disabled:opacity-40"><Archive className="h-3.5 w-3.5" />Remove from project</button>
-            <div className="my-1 border-t border-foreground/10" />
-            <button type="button" data-conversation-action="delete" onClick={() => onDelete?.(conversation)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10"><Trash2 className="h-3.5 w-3.5" />Delete</button>
-          </div>
+          {menuOpen && (
+            <div
+              role="menu"
+              aria-label={`Conversation actions for ${title}`}
+              data-testid="recents-action-menu"
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={onMenuKeyDown}
+              className="absolute left-full top-0 z-50 ml-1 w-48 rounded-xl border border-foreground/10 bg-background/95 p-1 shadow-2xl backdrop-blur-xl"
+            >
+              <button ref={(node) => { itemRefs.current[0] = node; }} type="button" role="menuitem" data-conversation-action="rename" onClick={() => runAction("rename")} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6 focus:bg-foreground/6 focus:outline-none"><Pencil className="h-3.5 w-3.5" />Rename</button>
+              <button ref={(node) => { itemRefs.current[1] = node; }} type="button" role="menuitem" data-conversation-action="move-project" onClick={() => runAction("move")} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs hover:bg-foreground/6 focus:bg-foreground/6 focus:outline-none"><Folder className="h-3.5 w-3.5" />Move to project</button>
+              <button ref={(node) => { itemRefs.current[2] = node; }} type="button" role="menuitem" data-conversation-action="delete" onClick={() => runAction("delete")} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-red-300 hover:bg-red-500/10 focus:bg-red-500/10 focus:outline-none"><Trash2 className="h-3.5 w-3.5" />Delete</button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -243,12 +337,10 @@ function RailContent({ activeView, collapsed = false, onSelectView, onOpenSettin
                     active={activeConversationId === conversation.id}
                     editing={editingConversationId === conversation.id}
                     onSelect={handlers.onSelectConversation}
-                    onToggleStar={handlers.onToggleConversationStar}
                     onStartRename={handlers.onStartRenameConversation}
                     onCommitRename={handlers.onCommitRenameConversation}
                     onCancelRename={handlers.onCancelRenameConversation}
                     onOpenChangeProject={handlers.onOpenChangeProject}
-                    onRemoveFromProject={handlers.onRemoveConversationFromProject}
                     onDelete={handlers.onDeleteConversation}
                   />
                 ))}

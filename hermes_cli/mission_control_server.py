@@ -2951,6 +2951,7 @@ class ConversationCreateRequest(BaseModel):
 
 
 class ConversationUpdateRequest(BaseModel):
+    name: Optional[str] = None
     title: Optional[str] = None
     pinned: Optional[bool] = None
     starred: Optional[bool] = None
@@ -3972,6 +3973,7 @@ async def create_conversation(body: ConversationCreateRequest) -> dict[str, Any]
 
 
 @app.put("/api/mission-control/conversations/{conversation_id}")
+@app.patch("/api/mission-control/conversations/{conversation_id}")
 async def update_conversation(conversation_id: str, body: ConversationUpdateRequest) -> dict[str, Any]:
     state = _load_state()
     idx = next((index for index, conversation in enumerate(state["conversations"]) if conversation["id"] == conversation_id), None)
@@ -3988,7 +3990,7 @@ async def update_conversation(conversation_id: str, body: ConversationUpdateRequ
         project_id_value = existing.get("project_id")
     payload = {
         "agent_id": body.agent_id or existing.get("agent_id"),
-        "title": body.title if body.title is not None else existing.get("title"),
+        "title": body.title if body.title is not None else body.name if body.name is not None else existing.get("title"),
         "pinned": body.pinned if body.pinned is not None else existing.get("pinned", starred_value),
         "starred": starred_value,
         "project_id": project_id_value,
@@ -4073,7 +4075,7 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
     # tool-result / tool-error events with a stable correlation id. Wiring
     # paired tool_start/tool_result/tool_error SSE events requires a
     # deeper AIAgent refactor and is deferred to a follow-up slice (Slice 2c).
-    # The frontend handles "no tool events" gracefully — see useChatStream.
+    # The frontend handles "no tool events" gracefully, see useChatStream.
 
     started_at = time.time()
 
@@ -4165,7 +4167,7 @@ async def _run_agent_stream(req: MissionChatRequest, conversation: dict[str, Any
             # contractually requires that whenever a ``done`` event with
             # non-empty ``reply.content`` is emitted, the same content is
             # readable from ``GET /conversations/{id}/messages``. We probe the
-            # last row and append only if the assistant turn is missing —
+            # last row and append only if the assistant turn is missing,
             # never duplicating what AIAgent already wrote.
             if reply_text and resolved_session_id:
                 try:
