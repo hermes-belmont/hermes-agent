@@ -311,7 +311,8 @@ export default function App() {
   const { pathname } = location;
   const normalizedPath = pathname.replace(/\/$/, "") || "/";
   const isEnvEmbed = normalizedPath === "/env" && new URLSearchParams(location.search).get("embed") === "1";
-  const { manifests, loading: pluginsLoading } = usePlugins(!isEnvEmbed);
+  const isModelsEmbed = normalizedPath === "/models" && new URLSearchParams(location.search).get("embed") === "1";
+  const { manifests, loading: pluginsLoading } = usePlugins(!(isEnvEmbed || isModelsEmbed));
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
   const closeMobile = useCallback(() => setMobileOpen(false), []);
@@ -415,17 +416,18 @@ export default function App() {
     return () => mql.removeEventListener("change", onChange);
   }, []);
 
-  if (isEnvEmbed) {
+  if (isEnvEmbed || isModelsEmbed) {
+    const EmbedPage = isModelsEmbed ? ModelsPage : EnvPage;
     return (
       <div
         data-layout-variant={layoutVariant}
-        data-dashboard-embed="env"
+        data-dashboard-embed={isModelsEmbed ? "models" : "env"}
         className="font-mondwest flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-black uppercase text-midground antialiased"
       >
         <Backdrop />
         <PageHeaderProvider pluginTabs={[]} embedded>
-          <div className="relative z-2 flex min-h-0 min-w-0 flex-1 flex-col p-3 sm:p-4">
-            <EnvPage />
+          <div className="relative z-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-auto p-3 sm:p-4">
+            <EmbedPage />
           </div>
         </PageHeaderProvider>
       </div>

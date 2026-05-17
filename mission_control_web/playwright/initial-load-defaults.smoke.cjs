@@ -1,12 +1,11 @@
 const { test, expect } = require('@playwright/test');
-const { setupAuthedPage, expectCleanPage } = require('./lib/auth.cjs');
+const { setupAuthedPage, expectCleanPage, apiFetch } = require('./lib/auth.cjs');
 
 const BASE_URL = 'http://127.0.0.1:9120';
-const DEFAULT_MODEL_STORAGE_KEY = 'mc.defaultModel.v1';
 
 async function getSettingsDefaultModel(page) {
-  const model = await page.evaluate((key) => localStorage.getItem(key), DEFAULT_MODEL_STORAGE_KEY);
-  return model || 'gpt-5.5';
+  const info = await apiFetch(page, 'http://127.0.0.1:9119/api/model/info');
+  return info.model_slug || info.model || 'gpt-5.5';
 }
 
 test('initial workspace load defaults to Hermes Direct and settings default model', async ({ browser }) => {

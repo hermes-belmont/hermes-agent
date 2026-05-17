@@ -5,11 +5,9 @@ const BASE_URL = 'http://127.0.0.1:9120';
 const APP_DEVELOPER_ID = 'agent_0d5dac8717';
 const HERMES_DIRECT_ID = 'agent_9afe71830d';
 const MISSION_CONTROL_PROJECT_ID = 'project-mission-control';
-const DEFAULT_MODEL_STORAGE_KEY = 'mc.defaultModel.v1';
-
 async function getSettingsDefaultModel(page) {
-  const model = await page.evaluate((key) => localStorage.getItem(key), DEFAULT_MODEL_STORAGE_KEY);
-  return model || 'gpt-5.5';
+  const info = await apiFetch(page, 'http://127.0.0.1:9119/api/model/info');
+  return info.model_slug || info.model || 'gpt-5.5';
 }
 
 test('sidebar New Chat defaults to Hermes Direct and no project', async ({ browser }) => {

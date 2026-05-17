@@ -42,7 +42,7 @@ import { SettingsView, type SettingsSection } from "@/components/SettingsView";
 import { InstallModal } from "@/components/InstallModal";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useChatStream } from "@/hooks/useChatStream";
-import { getDefaultModel, getRecentsPadded, promoteOnSend, RECENTS_STORAGE_KEY, DEFAULT_MODEL_STORAGE_KEY } from "@/lib/model-recents";
+import { getDefaultModel, getRecentsPadded, promoteOnSend, RECENTS_STORAGE_KEY, clearLegacyDefaultModelStorage, invalidateDefaultModelCache } from "@/lib/model-recents";
 import { navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
 import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
@@ -1081,7 +1081,7 @@ export default function App() {
     return resolveHashView(window.location.hash).settingsSection;
   });
   const [recentsTick, setRecentsTick] = useState(0);
-  const [defaultModel, setDefaultModelState] = useState<string | null>(() => getDefaultModel());
+  const [defaultModel, setDefaultModelState] = useState<string | null>(null);
   const [railCollapsed, setRailCollapsed] = useState(() => typeof window !== "undefined" && window.localStorage.getItem(RAIL_COLLAPSED_STORAGE_KEY) === "true");
   const [modelPreference, setModelPreference] = useState(() => typeof window === "undefined" ? "" : window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY) ?? "");
   const [showMobileNav, setShowMobileNav] = useState(false);
@@ -1125,7 +1125,7 @@ export default function App() {
   const tempMessageIdRef = useRef(-1);
   const { send: sendChatStream } = useChatStream();
   const loadBootstrap = useCallback(async (nextAgentId?: string | null, nextConversationId?: string | null, applyDefaultChat = false) => {
-    const applyDefaultChatResolution = (response: BootstrapResponse) => {
+    const applyDefaultChatResolution = async (response: BootstrapResponse) => {
       const defaultAgent = findSidebarNewChatDefaultAgent(response.agents, response.entity_tree ?? []);
       const fallbackAgent = response.agents[0] ?? null;
       const nextAgent = defaultAgent ?? fallbackAgent;
@@ -1135,7 +1135,7 @@ export default function App() {
         const defaultReasoning = reasoningLevelForAgent(nextAgent);
         if (defaultReasoning) setReasoningLevel(defaultReasoning);
       }
-      const settingsDefault = getDefaultModel();
+      const settingsDefault = await getDefaultModel();
       setDefaultModelState(settingsDefault);
       setModelPreference(resolveDefaultChatModel(settingsDefault, nextAgent, window.localStorage.getItem(MODEL_PREFERENCE_STORAGE_KEY) ?? ""));
       setActiveProjectId(null);
@@ -1149,7 +1149,7 @@ export default function App() {
       setBootstrap(response);
       const fallbackAgentId = response.agents.find((agent) => /app developer|hermes/i.test(agent.name))?.id ?? response.agents[0]?.id ?? null;
       if (applyDefaultChat && typeof nextAgentId === "undefined" && typeof nextConversationId === "undefined") {
-        applyDefaultChatResolution(response);
+        await applyDefaultChatResolution(response);
       } else {
         setSelectedAgentId((current) => nextAgentId ?? current ?? fallbackAgentId);
       }
@@ -1159,7 +1159,7 @@ export default function App() {
     } catch (err) {
       setBootstrap(mockBootstrap);
       if (applyDefaultChat && typeof nextAgentId === "undefined" && typeof nextConversationId === "undefined") {
-        applyDefaultChatResolution(mockBootstrap);
+        await applyDefaultChatResolution(mockBootstrap);
       } else {
         setSelectedAgentId((current) => nextAgentId ?? current ?? mockBootstrap.agents[0]?.id ?? null);
       }
@@ -1169,6 +1169,37 @@ export default function App() {
       return mockBootstrap;
     }
   }, []);
+
+  const refreshDefaultModel = useCallback(async (options: { force?: boolean } = {}) => {
+    if (options.force) invalidateDefaultModelCache();
+    const model = await getDefaultModel(options);
+    setDefaultModelState(model);
+    return model;
+  }, []);
+
+  useEffect(() => {
+    clearLegacyDefaultModelStorage();
+  }, []);
+
+  useEffect(() => {
+    void refreshDefaultModel();
+    const onFocus = () => void refreshDefaultModel({ force: true });
+    const onMessage = () => void refreshDefaultModel({ force: true });
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("message", onMessage);
+    };
+  }, [refreshDefaultModel]);
+
+  useEffect(() => {
+    if (activeView !== "settings" || settingsSection !== "models") return undefined;
+    const id = window.setInterval(() => {
+      void refreshDefaultModel({ force: true });
+    }, 1_000);
+    return () => window.clearInterval(id);
+  }, [activeView, settingsSection, refreshDefaultModel]);
 
   useEffect(() => {
     void loadBootstrap(undefined, undefined, true);
@@ -1228,7 +1259,6 @@ export default function App() {
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.key === RECENTS_STORAGE_KEY) setRecentsTick((n) => n + 1);
-      if (event.key === DEFAULT_MODEL_STORAGE_KEY) setDefaultModelState(getDefaultModel());
       if (event.key === PROJECTS_STORAGE_KEY) setProjects(loadStoredProjects());
     };
     window.addEventListener("storage", onStorage);
@@ -1276,7 +1306,7 @@ export default function App() {
     navigateToSettingsSection(section);
   }, []);
 
-  const handleSelectView = (view: ActiveView) => {
+  const handleSelectView = async (view: ActiveView) => {
     setActiveView(view);
     if (view === "projects") setProjectDetailId(null);
     if (view !== "projects") setProjectDetailId(null);
@@ -1290,8 +1320,7 @@ export default function App() {
         const defaultReasoning = reasoningLevelForAgent(nextAgent);
         if (defaultReasoning) setReasoningLevel(defaultReasoning);
       }
-      const settingsDefault = getDefaultModel();
-      setDefaultModelState(settingsDefault);
+      const settingsDefault = await refreshDefaultModel({ force: true });
       setModelPreference(resolveDefaultChatModel(settingsDefault, nextAgent, modelPreference));
       setMessages([]);
       setSelectedConversationId(null);

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DEFAULT_MODEL_STORAGE_KEY,
   RECENTS_CAP,
@@ -9,7 +9,6 @@ import {
   getRecentsPadded,
   promoteOnSend,
   promoteRecent,
-  setDefaultModel,
 } from "./model-recents";
 
 // Minimal localStorage shim for the Node test runner.
@@ -24,6 +23,7 @@ class MemoryStorage {
 }
 
 beforeEach(() => {
+  vi.unstubAllGlobals();
   // Install fresh window/localStorage for each test.
   (globalThis as unknown as { window: { localStorage: MemoryStorage } }).window = {
     localStorage: new MemoryStorage(),
@@ -105,19 +105,21 @@ describe("getRecentsPadded", () => {
   });
 });
 
-describe("default model persistence", () => {
-  it("round-trips through storage", () => {
-    expect(getDefaultModel()).toBeNull();
-    setDefaultModel("m1");
-    expect(getDefaultModel()).toBe("m1");
-    const raw = (globalThis as unknown as { window: { localStorage: Storage } })
-      .window.localStorage.getItem(DEFAULT_MODEL_STORAGE_KEY);
-    expect(raw).toBe("m1");
+describe("default model source", () => {
+  it("reads Hermes Agent main model and clears legacy storage", async () => {
+    const storage = (globalThis as unknown as { window: { localStorage: Storage } }).window.localStorage;
+    storage.setItem(DEFAULT_MODEL_STORAGE_KEY, "stale-local-default");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ model: "gpt-5.4" }), {
+      headers: { "Content-Type": "application/json" },
+    })));
+
+    await expect(getDefaultModel({ force: true })).resolves.toBe("gpt-5.4");
+    expect(storage.getItem(DEFAULT_MODEL_STORAGE_KEY)).toBeNull();
   });
 
-  it("clears when given empty id", () => {
-    setDefaultModel("m1");
-    setDefaultModel("");
-    expect(getDefaultModel()).toBeNull();
+  it("returns null when Hermes Agent main-model API is unavailable", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("unavailable", { status: 503 })));
+
+    await expect(getDefaultModel({ force: true })).resolves.toBeNull();
   });
 });

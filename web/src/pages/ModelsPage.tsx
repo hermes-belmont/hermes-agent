@@ -657,6 +657,9 @@ function ModelSettingsPanel({
     model: string;
   }) => {
     await api.setModelAssignment({ scope, task, provider, model });
+    if (scope === "main") {
+      window.parent?.postMessage({ type: "hermes:model-main-updated", model, provider }, "*");
+    }
     onSaved();
   };
 

@@ -1,7 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Check, Download, ImageIcon, KeyRound, Loader2, Lock, Monitor, Palette, RefreshCw, Server, Upload, UserCircle, X } from "lucide-react";
-import { getModelTier, MODEL_TIERS, providerKeyForModel, type ModelTier } from "@/lib/model-tiers";
-import { DEFAULT_MODEL_STORAGE_KEY, getDefaultModel, setDefaultModel } from "@/lib/model-recents";
 import { api } from "@/lib/api";
 import { resizeAvatarFileToDataUri } from "@/lib/avatar";
 import { DesktopRemoteSettings } from "@/components/DesktopRemoteSettings";
@@ -33,83 +31,16 @@ type Props = {
   onOpenInstall: () => void;
 };
 
-function ModelsPage({ catalog }: { catalog: readonly string[] }) {
-  const [defaultModel, setDefaultModelState] = useState<string | null>(() => getDefaultModel());
-
-  useEffect(() => {
-    const onStorage = (event: StorageEvent) => {
-      if (event.key === DEFAULT_MODEL_STORAGE_KEY) setDefaultModelState(getDefaultModel());
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
-
-  const grouped: Array<{ tier: ModelTier; models: string[] }> = MODEL_TIERS.map((tier) => ({
-    tier,
-    models: catalog.filter((model) => getModelTier(model) === tier),
-  })).filter((group) => group.models.length > 0);
-
-  const handleSelect = (model: string) => {
-    setDefaultModel(model);
-    setDefaultModelState(model);
-  };
-
+function ModelsPage() {
   return (
-    <section className="flex flex-1 flex-col gap-5">
-      <header>
-        <h1 className="font-expanded text-xl font-medium text-foreground">Models</h1>
-        <p className="mt-1 text-[11px] text-foreground/70">
-          Choose the default model for new chats. The chat composer's quick picker shows your
-          three most-recently-used models — open this page when you need the full catalog.
-        </p>
-      </header>
-
-      <div className="flex flex-col gap-5">
-        {grouped.map(({ tier, models }) => (
-          <div key={tier} className="flex flex-col gap-2">
-            <div className="text-[10px] uppercase tracking-[0.16em] text-foreground/70">{tier}</div>
-            <div className="grid gap-2">
-              {models.map((model) => {
-                const isDefault = defaultModel === model;
-                return (
-                  <button
-                    key={model}
-                    type="button"
-                    onClick={() => handleSelect(model)}
-                    className={cn(
-                      "flex items-center justify-between gap-3 rounded-xl border border-foreground/10 bg-background/55 px-4 py-3 text-left transition hover:border-[color-mix(in_srgb,var(--warm-glow)_32%,transparent)] hover:bg-[color-mix(in_srgb,var(--warm-glow)_6%,transparent)]",
-                      isDefault && "border-[color-mix(in_srgb,var(--warm-glow)_40%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_8%,transparent)]",
-                    )}
-                  >
-                    <div className="min-w-0">
-                      <div className="font-mono text-[12px] text-foreground">{model}</div>
-                      <div className="mt-0.5 text-[10px] uppercase tracking-[0.14em] text-foreground/70">
-                        {providerKeyForModel(model)} · {tier}
-                      </div>
-                    </div>
-                    {isDefault ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-[color-mix(in_srgb,var(--warm-glow)_50%,transparent)] bg-[color-mix(in_srgb,var(--warm-glow)_10%,transparent)] px-2 py-[3px] text-[9px] uppercase tracking-[0.14em] text-[var(--warm-glow)]">
-                        <Check className="h-3 w-3" />
-                        Default
-                      </span>
-                    ) : (
-                      <span className="text-[10px] uppercase tracking-[0.14em] text-foreground/35">
-                        Set default
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {grouped.length === 0 && (
-          <div className="rounded-xl border border-dashed border-foreground/18 px-4 py-6 text-center text-[12px] text-foreground/70">
-            No models in the catalog. Check provider configuration.
-          </div>
-        )}
-      </div>
-    </section>
+    <div className="flex min-h-[calc(100vh-3rem)] flex-1 flex-col overflow-hidden rounded-2xl border border-border/70 bg-background/40">
+      <iframe
+        title="Hermes Agent Models"
+        src="http://localhost:9119/models?embed=1"
+        className="min-h-0 w-full flex-1 border-0 bg-transparent"
+        sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
+      />
+    </div>
   );
 }
 
@@ -621,7 +552,7 @@ function KeysPage() {
   );
 }
 
-export function SettingsView({ section, catalog, onSelectSection, activeTheme, onSelectTheme, activeBackground, onSelectBackground, account, onAccountChange, onOpenInstall }: Props) {
+export function SettingsView({ section, onSelectSection, activeTheme, onSelectTheme, activeBackground, onSelectBackground, account, onAccountChange, onOpenInstall }: Props) {
   return (
     <section className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[200px_minmax(0,1fr)]">
       <aside className="flex flex-col gap-1 lg:sticky lg:top-6 lg:self-start">
@@ -650,7 +581,7 @@ export function SettingsView({ section, catalog, onSelectSection, activeTheme, o
 
       <div className="min-h-0 max-h-[calc(100vh-3rem)] overflow-y-auto pr-1">
         {section === "models" ? (
-          <ModelsPage catalog={catalog} />
+          <ModelsPage />
         ) : section === "themes" ? (
           <ThemesPage activeTheme={activeTheme} onSelectTheme={onSelectTheme} activeBackground={activeBackground} onSelectBackground={onSelectBackground} />
         ) : section === "desktop-remote" ? (
