@@ -104,6 +104,7 @@ export default function SkillsPage() {
   const { toast, showToast } = useToast();
   const { t } = useI18n();
   const { setAfterTitle, setEnd } = usePageHeader();
+  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "1";
 
   useEffect(() => {
     Promise.all([api.getSkills(), api.getToolsets()])
@@ -187,21 +188,11 @@ export default function SkillsPage() {
   }, [skills, t]);
 
   const enabledCount = skills.filter((s) => s.enabled).length;
-
-  useLayoutEffect(() => {
-    if (loading) {
-      setAfterTitle(null);
-      setEnd(null);
-      return;
-    }
-    setAfterTitle(
-      <span className="whitespace-nowrap text-xs text-muted-foreground">
-        {t.skills.enabledOf
-          .replace("{enabled}", String(enabledCount))
-          .replace("{total}", String(skills.length))}
-      </span>,
-    );
-    setEnd(
+  const enabledSummary = t.skills.enabledOf
+    .replace("{enabled}", String(enabledCount))
+    .replace("{total}", String(skills.length));
+  const searchControl = useMemo(
+    () => (
       <div className="relative w-full min-w-0 sm:max-w-xs">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
         <Input
@@ -221,13 +212,28 @@ export default function SkillsPage() {
             <X />
           </Button>
         )}
-      </div>,
+      </div>
+    ),
+    [search, t.common.clear, t.common.search],
+  );
+
+  useLayoutEffect(() => {
+    if (isEmbed || loading) {
+      setAfterTitle(null);
+      setEnd(null);
+      return;
+    }
+    setAfterTitle(
+      <span className="whitespace-nowrap text-xs text-muted-foreground">
+        {enabledSummary}
+      </span>,
     );
+    setEnd(searchControl);
     return () => {
       setAfterTitle(null);
       setEnd(null);
     };
-  }, [enabledCount, loading, search, setAfterTitle, setEnd, skills.length, t]);
+  }, [enabledSummary, isEmbed, loading, searchControl, setAfterTitle, setEnd]);
 
   const filteredToolsets = useMemo(() => {
     return toolsets.filter(
@@ -252,6 +258,21 @@ export default function SkillsPage() {
     <div className="flex flex-col gap-4">
       <PluginSlot name="skills:top" />
       <Toast toast={toast} />
+
+      {isEmbed && (
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <Package className="h-4 w-4 text-muted-foreground" />
+            <h1 className="font-mondwest text-sm tracking-[0.16em] text-foreground">
+              {t.skills.title}
+            </h1>
+            <span className="whitespace-nowrap text-xs text-muted-foreground">
+              {enabledSummary}
+            </span>
+          </div>
+          {searchControl}
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row sm:items-start gap-4">
         <aside aria-label={t.skills.title} className="sm:w-56 sm:shrink-0">

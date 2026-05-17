@@ -314,7 +314,8 @@ export default function App() {
   const isEnvEmbed = normalizedPath === "/env" && searchParams.get("embed") === "1";
   const isModelsEmbed = normalizedPath === "/models" && searchParams.get("embed") === "1";
   const isConfigEmbed = normalizedPath === "/config" && searchParams.get("embed") === "1";
-  const isAnyEmbed = isEnvEmbed || isModelsEmbed || isConfigEmbed;
+  const isSkillsEmbed = normalizedPath === "/skills" && searchParams.get("embed") === "1";
+  const isAnyEmbed = isEnvEmbed || isModelsEmbed || isConfigEmbed || isSkillsEmbed;
   const { manifests, loading: pluginsLoading } = usePlugins(!isAnyEmbed);
   const { theme } = useTheme();
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -420,8 +421,8 @@ export default function App() {
   }, []);
 
   if (isAnyEmbed) {
-    const EmbedPage = isModelsEmbed ? ModelsPage : isConfigEmbed ? ConfigPage : EnvPage;
-    const embedName = isModelsEmbed ? "models" : isConfigEmbed ? "config" : "env";
+    const EmbedPage = isModelsEmbed ? ModelsPage : isConfigEmbed ? ConfigPage : isSkillsEmbed ? SkillsPage : EnvPage;
+    const embedName = isModelsEmbed ? "models" : isConfigEmbed ? "config" : isSkillsEmbed ? "skills" : "env";
     return (
       <div
         data-layout-variant={layoutVariant}
