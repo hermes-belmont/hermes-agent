@@ -73,7 +73,7 @@ function ProjectRow({ project, active, collapsed, onSelect, onToggleStar, onEdit
   onRestore?: (project: ProjectRecord) => void;
 }) {
   return (
-    <div className="group/project relative" data-testid="project-row" data-project-id={project.id}>
+    <div className="group/project relative" data-testid="project-row" data-project-id={project.id} data-active={active ? "true" : undefined}>
       <button
         type="button"
         title={collapsed ? project.name : undefined}

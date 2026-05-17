@@ -53,6 +53,8 @@ const MODEL_PREFERENCE_STORAGE_KEY = "mission-control-model-preference";
 const PROJECTS_STORAGE_KEY = "mission-control-projects-v1";
 const ACTIVE_PROJECT_STORAGE_KEY = "mission-control-active-project-v1";
 const PROJECT_DETAIL_RIGHT_PANEL_ENABLED = true;
+const SIDEBAR_NEW_CHAT_DEFAULT_AGENT_ID = "agent_9afe71830d";
+const SIDEBAR_NEW_CHAT_DEFAULT_AGENT_NAME = "Hermes (Direct)";
 
 type LoadState = "idle" | "loading" | "error";
 type NoticeTone = "info" | "success" | "warning" | "error";
@@ -152,6 +154,22 @@ function modelForAgent(agent?: AgentRecord | null, fallback = "gpt-5.5"): string
     ?? agent?.provider_capabilities?.requested_model
     ?? agent?.preferred_model
     ?? fallback;
+}
+
+function reasoningLevelForAgent(agent?: AgentRecord | null): ReasoningLevel | null {
+  const effort = agent?.advanced?.reasoning_effort?.toLowerCase();
+  if (effort === "low") return "Low";
+  if (effort === "medium") return "Medium";
+  if (effort === "high") return "High";
+  return null;
+}
+
+function findSidebarNewChatDefaultAgent(agents: AgentRecord[], entityTree: EntityRecord[]): AgentRecord | null {
+  const personalEntityIds = new Set(entityTree.filter((entity) => entity.name.toLowerCase() === "personal" || entity.type === "personal").map((entity) => entity.id));
+  return agents.find((agent) => agent.id === SIDEBAR_NEW_CHAT_DEFAULT_AGENT_ID)
+    ?? agents.find((agent) => agent.name === SIDEBAR_NEW_CHAT_DEFAULT_AGENT_NAME && (agent.operating_entity === "Personal" || (agent.entity_id ? personalEntityIds.has(agent.entity_id) : false)))
+    ?? agents.find((agent) => agent.name === SIDEBAR_NEW_CHAT_DEFAULT_AGENT_NAME)
+    ?? null;
 }
 
 function InlineNotice({ tone, title, detail, icon, action }: { tone: NoticeTone; title: string; detail?: string; icon?: ReactNode; action?: ReactNode }) {
@@ -865,7 +883,6 @@ function HermesChatView({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const hasThread = messages.length > 0;
   const displayProfile = activeAgent?.name ?? "default";
-  const projectName = activeProject?.name ?? "new";
   const profileModel = modelForAgent(activeAgent, activeModel);
   const selectorAgents = sortedAgentsForSelector(agents, entityTree);
   const [loadingPhrases, setLoadingPhrases] = useState<LoadingPhrase[]>([]);
@@ -889,10 +906,12 @@ function HermesChatView({
   return (
     <div className="relative flex min-h-[calc(100vh-2rem)] flex-1 flex-col overflow-hidden rounded-[32px] border border-foreground/6 bg-[radial-gradient(circle_at_50%_32%,color-mix(in_srgb,var(--warm-glow)_10%,transparent),transparent_27%),linear-gradient(180deg,rgba(0,0,0,0.08),rgba(0,0,0,0.18))] px-5 py-4 sm:px-7">
       <div className="flex items-center justify-between text-sm text-muted-foreground">
-        <div className="inline-flex items-center gap-2">
-          <Folder className="h-4 w-4" />
-          <span className="text-foreground/78">{projectName}</span>
-        </div>
+        {activeProject && (
+          <div className="inline-flex items-center gap-2" data-testid="chat-project-label">
+            <Folder className="h-4 w-4" />
+            <span className="text-foreground/78">{activeProject.name}</span>
+          </div>
+        )}
       </div>
 
       <div className="flex flex-1 flex-col pb-[150px]">
@@ -1190,7 +1209,10 @@ export default function App() {
   }, [projects]);
 
   useEffect(() => {
-    try { if (activeProjectId) window.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, activeProjectId); } catch { /* ignore */ }
+    try {
+      if (activeProjectId) window.localStorage.setItem(ACTIVE_PROJECT_STORAGE_KEY, activeProjectId);
+      else window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+    } catch { /* ignore */ }
   }, [activeProjectId]);
 
   useEffect(() => {
@@ -1204,7 +1226,7 @@ export default function App() {
   const activeModelPreference = selectedConversation?.preferred_model || modelPreference || selectedAgent?.preferred_model || defaultModel || catalogModels[0] || "gpt-5.5";
   void recentsTick;
   const recentsForPicker = getRecentsPadded(catalogModels, defaultModel ?? activeModelPreference);
-  const activeProject = projects.find((project) => project.id === activeProjectId && !project.archived) ?? projects.find((project) => !project.archived) ?? null;
+  const activeProject = activeProjectId ? projects.find((project) => project.id === activeProjectId && !project.archived) ?? null : null;
   const detailProject = projects.find((project) => project.id === projectDetailId && !project.archived) ?? null;
 
   const openSettingsModels = useCallback(() => {
@@ -1224,11 +1246,29 @@ export default function App() {
     if (view === "projects") setProjectDetailId(null);
     if (view !== "projects") setProjectDetailId(null);
     if (view === "new-chat") {
+      const defaultAgent = bootstrap ? findSidebarNewChatDefaultAgent(bootstrap.agents, bootstrap.entity_tree ?? []) : null;
+      const fallbackAgent = selectedAgent ?? bootstrap?.agents[0] ?? null;
+      const nextAgent = defaultAgent ?? fallbackAgent;
+      if (!defaultAgent && fallbackAgent) console.warn(`Default agent 'Hermes (Direct)' not found, falling back to ${fallbackAgent.name}`);
+      if (nextAgent) {
+        setSelectedAgentId(nextAgent.id);
+        const defaultReasoning = reasoningLevelForAgent(nextAgent);
+        if (defaultReasoning) setReasoningLevel(defaultReasoning);
+      }
       setMessages([]);
       setSelectedConversationId(null);
       setComposerText("");
       setChatError("");
       setAttachments([]);
+      setActiveProjectId(null);
+      setProfilesOpen(false);
+      setReasoningOpen(false);
+      setModelOpen(false);
+      setModelPreference("");
+      try {
+        window.localStorage.removeItem(ACTIVE_PROJECT_STORAGE_KEY);
+        window.localStorage.removeItem(MODEL_PREFERENCE_STORAGE_KEY);
+      } catch { /* ignore */ }
     }
   };
 
@@ -1429,7 +1469,7 @@ export default function App() {
     recognition.start();
   };
 
-  const ensureConversation = async (agent: AgentRecord, projectId: string | null = activeProjectId) => {
+  const ensureConversation = async (agent: AgentRecord, projectId: string | null = null) => {
     const count = bootstrap?.conversations.filter((conversation) => conversation.agent_id === agent.id).length ?? 0;
     const response = await api.createConversation(agent.id, buildConversationTitle(agent, count), projectId);
     if (activeModelPreference) await api.updateConversation(response.conversation.id, { preferred_model: activeModelPreference });
@@ -1480,7 +1520,7 @@ export default function App() {
     setRecentsTick((n) => n + 1);
 
     try {
-      const conversationId = selectedConversation?.id ?? await ensureConversation(selectedAgent, activeProjectId);
+      const conversationId = selectedConversation?.id ?? await ensureConversation(selectedAgent, null);
       setSelectedConversationId(conversationId);
       if (activeModelPreference) await api.updateConversation(conversationId, { preferred_model: activeModelPreference });
       const uploadedAttachments = pendingFiles.length ? (await api.uploadChatAttachments(pendingFiles, conversationId)).attachments : [];
