@@ -30,7 +30,7 @@ function ErrorClassPill({ label }: { label: string }) {
 function PriorityPill({ priority }: { priority: string }) {
   const tone = briefingPriorityTone(priority);
   const cls = tone === "high" ? "bg-red-400/12 text-red-200 border-red-400/30" : tone === "medium" ? "bg-amber-400/12 text-amber-200 border-amber-400/30" : "bg-foreground/8 text-foreground/70 border-foreground/15";
-  return <span className={cn("rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em]", cls)}>{tone}</span>;
+  return <span className={cn("inline-flex h-6 w-20 shrink-0 items-center justify-center self-center rounded-full border px-3 text-[10px] uppercase tracking-[0.12em]", cls)}>{tone}</span>;
 }
 
 export function BriefingsView() {
