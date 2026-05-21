@@ -55,6 +55,7 @@ from hermes_cli.models import normalize_provider, provider_label, provider_model
 from hermes_cli import briefings as briefings_service
 from hermes_cli import messages as messages_service
 from hermes_cli import tracked_items as tracked_items_service
+from hermes_cli.cron_api_routes import router as cron_api_router
 from hermes_cli import entities as entities_service
 from hermes_cli import reactive_worker
 from hermes_state import SessionDB
@@ -157,6 +158,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(cron_api_router)
 
 PUBLIC_API_PATHS = frozenset({"/api/mission-control/health", "/api/system/metrics", "/api/mission-control/maintenance/hci-status"})
 
