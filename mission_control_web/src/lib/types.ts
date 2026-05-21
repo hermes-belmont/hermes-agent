@@ -18,6 +18,45 @@ export interface AccountRecord {
 
 export type HermesProfile = { name: string; path: string; is_default: boolean; model: string | null; provider: string | null; has_env: boolean; skill_count: number };
 
+
+export interface CronJobSchedule {
+  kind?: string;
+  expr?: string;
+  display?: string;
+}
+
+export interface CronJob {
+  id: string;
+  profile?: string | null;
+  profile_name?: string | null;
+  hermes_home?: string | null;
+  is_default_profile?: boolean;
+  name?: string | null;
+  prompt?: string | null;
+  script?: string | null;
+  schedule?: CronJobSchedule | string | null;
+  schedule_display?: string | null;
+  enabled: boolean;
+  state?: string | null;
+  deliver?: string | null;
+  repeat?: number | null;
+  run_count?: number | null;
+  last_run_at?: string | null;
+  next_run_at?: string | null;
+  last_error?: string | null;
+  skills?: string[] | null;
+}
+
+export interface CronJobCreatePayload {
+  name?: string;
+  schedule: string;
+  prompt: string;
+  profile?: string;
+  skills?: string[];
+  deliver?: string;
+  repeat?: number | null;
+}
+
 export interface UsageSummary {
   conversation_count?: number;
   input_tokens: number;

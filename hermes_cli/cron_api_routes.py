@@ -24,6 +24,8 @@ class CronJobCreate(BaseModel):
     schedule: str
     name: str = ""
     deliver: str = "local"
+    skills: Optional[List[str]] = None
+    repeat: Optional[int] = None
 
 
 class CronJobUpdate(BaseModel):
@@ -202,14 +204,17 @@ async def get_cron_job(job_id: str, profile: Optional[str] = None):
 @router.post("/api/cron/jobs")
 async def create_cron_job(body: CronJobCreate, profile: str = "default"):
     try:
-        return _call_cron_for_profile(
-            profile,
-            "create_job",
-            prompt=body.prompt,
-            schedule=body.schedule,
-            name=body.name,
-            deliver=body.deliver,
-        )
+        kwargs: Dict[str, Any] = {
+            "prompt": body.prompt,
+            "schedule": body.schedule,
+            "name": body.name,
+            "deliver": body.deliver,
+        }
+        if body.skills is not None:
+            kwargs["skills"] = body.skills
+        if body.repeat is not None:
+            kwargs["repeat"] = body.repeat
+        return _call_cron_for_profile(profile, "create_job", **kwargs)
     except Exception as e:
         _log.exception("POST /api/cron/jobs failed")
         raise HTTPException(status_code=400, detail=str(e))

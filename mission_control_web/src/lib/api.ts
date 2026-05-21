@@ -2,7 +2,7 @@ import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResu
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
-import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts, ChatAttachment } from "@/lib/types";
+import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts, ChatAttachment, CronJob, CronJobCreatePayload } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -143,6 +143,15 @@ export const api = {
   getBriefing: (id: string) => fetchJSON<Briefing>(`/api/briefings/${encodeURIComponent(id)}`),
   deleteBriefing: (id: string) => fetchJSON<{ ok: boolean }>(`/api/briefings/${encodeURIComponent(id)}`, { method: "DELETE" }),
   getBriefingsConfig: () => fetchJSON<BriefingConfig>("/api/briefings/config"),
+  listCronJobs: (profile = "all") => fetchJSON<CronJob[]>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`),
+  createCronJob: (payload: CronJobCreatePayload) => {
+    const { profile = "default", ...body } = payload;
+    return fetchJSON<CronJob>(`/api/cron/jobs?profile=${encodeURIComponent(profile)}`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  },
+  pauseCronJob: (jobId: string, profile?: string) => fetchJSON<CronJob>(`/api/cron/jobs/${encodeURIComponent(jobId)}/pause${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "POST" }).then(() => undefined),
+  resumeCronJob: (jobId: string, profile?: string) => fetchJSON<CronJob>(`/api/cron/jobs/${encodeURIComponent(jobId)}/resume${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "POST" }).then(() => undefined),
+  triggerCronJob: (jobId: string, profile?: string) => fetchJSON<CronJob>(`/api/cron/jobs/${encodeURIComponent(jobId)}/trigger${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "POST" }).then(() => undefined),
+  deleteCronJob: (jobId: string, profile?: string) => fetchJSON<{ ok: boolean }>(`/api/cron/jobs/${encodeURIComponent(jobId)}${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "DELETE" }).then(() => undefined),
   listTrackedItems: (filters: Record<string, string | undefined> = {}) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value && value !== "all") params.set(key, value); });
