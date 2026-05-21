@@ -20,11 +20,11 @@ export type ProjectRecord = {
 
 const items = [
   { id: "new-chat" as const, label: "New Chat", icon: MessageSquarePlus },
-  { id: "briefings" as const, label: "Briefings", icon: BellRing },
+  { id: "briefings" as const, label: "Briefings (CRON)", icon: BellRing },
   { id: "inbox" as const, label: "Inbox", icon: Inbox },
   { id: "agents" as const, label: "Agents", icon: Users },
   { id: "projects" as const, label: "Projects", icon: Folder },
-  { id: "tracking" as const, label: "Tracking", icon: ListTodo },
+  { id: "tracking" as const, label: "Kanban", icon: ListTodo },
   { id: "monitor" as const, label: "Monitor", icon: Activity },
   { id: "maintenance" as const, label: "Maintenance", icon: Wrench },
   { id: "settings" as const, label: "Settings", icon: Settings },
