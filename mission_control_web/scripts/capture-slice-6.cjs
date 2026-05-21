@@ -2,7 +2,7 @@ const { chromium } = require('playwright');
 const fs = require('fs');
 const path = require('path');
 
-const base = 'http://127.0.0.1:9120/#/briefings';
+const base = 'http://127.0.0.1:9120/#/cron';
 const previewDir = '/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public/preview';
 const briefingDir = '/Users/hermes-agent/.hermes/runtime/briefings';
 const holdDir = '/Users/hermes-agent/.hermes/runtime/briefings-screenshot-hold';

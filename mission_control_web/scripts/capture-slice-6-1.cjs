@@ -98,7 +98,7 @@ const briefing = {
   }) }));
   await page.route('**/api/briefings/2026-05-13', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify(briefing) }));
   await page.route('**/api/briefings', route => route.fulfill({ contentType: 'application/json', body: JSON.stringify([{ id: briefing.id, generated_at: briefing.generated_at, triggered_by: briefing.triggered_by, summary: briefing.summary }]) }));
-  await page.goto('http://127.0.0.1:9120/#/briefings', { waitUntil: 'networkidle' });
+  await page.goto('http://127.0.0.1:9120/#/cron', { waitUntil: 'networkidle' });
   await page.getByTestId('briefings-view').waitFor({ timeout: 15000 });
   await page.screenshot({ path: path.join(previewDir, 'slice-6-1-briefings-classified-errors.png'), fullPage: true });
   await browser.close();

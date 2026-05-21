@@ -6,8 +6,8 @@ const out = '/Users/hermes-agent/.hermes/hermes-agent/mission_control_web/public
 fs.mkdirSync(out, { recursive: true });
 
 async function waitTracking(page) {
-  await page.goto(`${base}/#/tracking`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Tracking' }).waitFor({ timeout: 15000 });
+  await page.goto(`${base}/#/kanban`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Kanban' }).waitFor({ timeout: 15000 });
   await page.waitForTimeout(700);
 }
 
@@ -42,7 +42,7 @@ async function openAdd(page) {
   await page.waitForTimeout(1000);
   await page.screenshot({ path: path.join(out, 'slice-6-2-1-tracking-labels-after.png'), fullPage: true });
 
-  await page.goto(`${base}/#/briefings`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}/#/cron`, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);
   await page.screenshot({ path: path.join(out, 'slice-6-2-1-briefing-labels-after.png'), fullPage: true });
 

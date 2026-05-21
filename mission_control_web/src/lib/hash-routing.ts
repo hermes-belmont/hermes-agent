@@ -31,10 +31,23 @@ export function navigateToSettingsSection(section: SettingsSection): void {
   window.location.hash = target;
 }
 
+export function legacyHashRedirect(rawHash: string): string | null {
+  const hash = (rawHash || "").trim();
+  if (hash === "#/briefings") return "#/cron";
+  if (hash.startsWith("#/briefings/")) return `#/cron/${hash.slice("#/briefings/".length)}`;
+  if (hash.startsWith("#/briefings?")) return `#/cron?${hash.slice("#/briefings?".length)}`;
+  if (hash === "#/tracking") return "#/kanban";
+  if (hash.startsWith("#/tracking/")) return `#/kanban/${hash.slice("#/tracking/".length)}`;
+  if (hash.startsWith("#/tracking?")) return `#/kanban?${hash.slice("#/tracking?".length)}`;
+  return null;
+}
+
 /**
  * Map a raw `window.location.hash` value to the canonical view + settings
  * section. Recognizes:
  *   "", "#", "#/", "#/new-chat"          → new-chat
+ *   "#/cron"                             → briefings
+ *   "#/kanban"                           → tracking
  *   "#/monitor"                          → monitor
  *   "#/maintenance"                      → maintenance
  *   "#/settings"                         → settings/models (redirect target)
@@ -51,7 +64,7 @@ export function resolveHashView(rawHash: string): ResolvedHashView {
     return { view: "new-chat", settingsSection: "models", fallback: false, redirectToModels: false };
   }
 
-  if (hash === "#/briefings") {
+  if (hash === "#/cron" || hash.startsWith("#/cron/") || hash.startsWith("#/cron?")) {
     return { view: "briefings", settingsSection: "models", fallback: false, redirectToModels: false };
   }
 
@@ -67,7 +80,7 @@ export function resolveHashView(rawHash: string): ResolvedHashView {
     return { view: "projects", settingsSection: "models", fallback: false, redirectToModels: false };
   }
 
-  if (hash === "#/tracking" || hash.startsWith("#/tracking?")) {
+  if (hash === "#/kanban" || hash.startsWith("#/kanban/") || hash.startsWith("#/kanban?")) {
     return { view: "tracking", settingsSection: "models", fallback: false, redirectToModels: false };
   }
 

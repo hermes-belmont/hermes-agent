@@ -15,8 +15,8 @@ async function setTheme(page, theme) {
 }
 
 async function waitTracking(page) {
-  await page.goto(`${base}/#/tracking`, { waitUntil: 'domcontentloaded' });
-  await page.getByRole('heading', { name: 'Tracking' }).waitFor({ timeout: 15000 });
+  await page.goto(`${base}/#/kanban`, { waitUntil: 'domcontentloaded' });
+  await page.getByRole('heading', { name: 'Kanban' }).waitFor({ timeout: 15000 });
   await page.waitForTimeout(700);
 }
 
@@ -58,7 +58,7 @@ async function waitTracking(page) {
   await page.screenshot({ path: path.join(out, 'slice-6-2-tracking-empty-state.png'), fullPage: true });
 
   await page.setViewportSize({ width: 1440, height: 1200 });
-  await page.goto(`${base}/#/briefings`, { waitUntil: 'domcontentloaded' });
+  await page.goto(`${base}/#/cron`, { waitUntil: 'domcontentloaded' });
   await page.getByText('Tracked source').first().waitFor({ timeout: 15000 });
   await page.screenshot({ path: path.join(out, 'slice-6-2-briefings-with-real-items.png'), fullPage: true });
 

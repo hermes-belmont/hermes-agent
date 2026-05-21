@@ -276,7 +276,7 @@ function AgentInspector({ selectedAgent, entities, models, reachable, reachableE
         <div className="flex gap-2"><Button onClick={() => void saveAgent(draft)}>Save</Button><Button variant="outline" onClick={() => setDraft(selectedAgent)}>Cancel</Button></div>
         <div className="text-xs text-muted-foreground">Can message: {reachable.length} agents across {reachableEntityCount} entities</div>
         <details className="text-xs text-muted-foreground"><summary>Reachable agents</summary>{reachable.map((agent) => <div key={agent.id}>{agent.name}</div>)}</details>
-        <div className="flex gap-2 text-xs"><a href={`#/inbox?agent_id=${selectedAgent.id}`}>Inbox filtered</a><a href={`#/tracking?agent_id=${selectedAgent.id}`}>Kanban filtered</a><a href="#/briefings">Briefing sections</a></div>
+        <div className="flex gap-2 text-xs"><a href={`#/inbox?agent_id=${selectedAgent.id}`}>Inbox filtered</a><a href={`#/kanban?agent_id=${selectedAgent.id}`}>Kanban filtered</a><a href="#/cron">Briefing sections</a></div>
         <div className="text-[11px] text-muted-foreground">Created {selectedAgent.created_at}<br />Updated {selectedAgent.updated_at}</div>
       </CardContent>
     </Card>

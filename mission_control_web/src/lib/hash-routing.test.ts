@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resolveHashView } from "./hash-routing";
+import { legacyHashRedirect, resolveHashView } from "./hash-routing";
 
 describe("resolveHashView", () => {
   it("treats empty/root hash as new-chat (no fallback)", () => {
@@ -12,9 +12,12 @@ describe("resolveHashView", () => {
   });
 
   it("maps monitor / maintenance", () => {
-    expect(resolveHashView("#/briefings").view).toBe("briefings");
-    expect(resolveHashView("#/tracking").view).toBe("tracking");
-    expect(resolveHashView("#/tracking?agent_id=agent_a").view).toBe("tracking");
+    expect(resolveHashView("#/cron").view).toBe("briefings");
+    expect(resolveHashView("#/cron/123").view).toBe("briefings");
+    expect(resolveHashView("#/cron?briefing_id=123").view).toBe("briefings");
+    expect(resolveHashView("#/kanban").view).toBe("tracking");
+    expect(resolveHashView("#/kanban/task-1").view).toBe("tracking");
+    expect(resolveHashView("#/kanban?agent_id=agent_a").view).toBe("tracking");
     expect(resolveHashView("#/monitor").view).toBe("monitor");
     expect(resolveHashView("#/maintenance").view).toBe("maintenance");
   });
@@ -35,6 +38,16 @@ describe("resolveHashView", () => {
     expect(resolveHashView("#/settings/skills").settingsSection).toBe("skills");
     expect(resolveHashView("#/settings/account").settingsSection).toBe("account");
     expect(resolveHashView("#/settings/models").redirectToModels).toBe(false);
+  });
+
+  it("redirects legacy briefings and tracking routes to canonical routes", () => {
+    expect(legacyHashRedirect("#/briefings")).toBe("#/cron");
+    expect(legacyHashRedirect("#/briefings/123")).toBe("#/cron/123");
+    expect(legacyHashRedirect("#/briefings?date=today")).toBe("#/cron?date=today");
+    expect(legacyHashRedirect("#/tracking")).toBe("#/kanban");
+    expect(legacyHashRedirect("#/tracking?agent_id=agent_a")).toBe("#/kanban?agent_id=agent_a");
+    expect(legacyHashRedirect("#/tracking/task-1")).toBe("#/kanban/task-1");
+    expect(legacyHashRedirect("#/kanban")).toBeNull();
   });
 
   it("falls back to new-chat on unrecognized hash", () => {

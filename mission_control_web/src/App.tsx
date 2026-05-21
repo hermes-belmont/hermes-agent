@@ -43,7 +43,7 @@ import { InstallModal } from "@/components/InstallModal";
 import { MarkdownRenderer } from "@/components/MarkdownRenderer";
 import { useChatStream } from "@/hooks/useChatStream";
 import { getDefaultModel, getRecentsPadded, promoteOnSend, RECENTS_STORAGE_KEY, clearLegacyDefaultModelStorage, invalidateDefaultModelCache } from "@/lib/model-recents";
-import { navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
+import { legacyHashRedirect, navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
 import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
 
@@ -1232,11 +1232,11 @@ export default function App() {
   useEffect(() => {
     try { window.localStorage.setItem(ACTIVE_VIEW_STORAGE_KEY, activeView); } catch { /* ignore */ }
     const target = activeView === "settings" ? `#/settings/${settingsSection}`
-      : activeView === "briefings" ? "#/briefings"
+      : activeView === "briefings" ? "#/cron"
       : activeView === "inbox" ? "#/inbox"
       : activeView === "agents" ? "#/agents"
       : activeView === "projects" ? (projectDetailId ? `#/projects/${encodeURIComponent(projectDetailId)}` : "#/projects")
-      : activeView === "tracking" ? (window.location.hash.startsWith("#/tracking?") ? window.location.hash : "#/tracking")
+      : activeView === "tracking" ? (window.location.hash.startsWith("#/kanban?") ? window.location.hash : "#/kanban")
       : activeView === "monitor" ? "#/monitor"
       : activeView === "maintenance" ? "#/maintenance"
       : "#/";
@@ -1245,6 +1245,10 @@ export default function App() {
 
   useEffect(() => {
     const applyFromHash = () => {
+      const legacyRedirect = legacyHashRedirect(window.location.hash);
+      if (legacyRedirect) {
+        window.history.replaceState(null, "", legacyRedirect);
+      }
       const resolved = resolveHashView(window.location.hash);
       setActiveView((current) => current === resolved.view ? current : resolved.view);
       setProjectDetailId(resolved.view === "projects" ? projectIdFromHash(window.location.hash) : null);
