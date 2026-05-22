@@ -556,6 +556,7 @@ class CreateTaskBody(BaseModel):
     assignee: Optional[str] = None
     tenant: Optional[str] = None
     priority: int = 0
+    status: Optional[str] = None
     workspace_kind: str = "scratch"
     workspace_path: Optional[str] = None
     parents: list[str] = Field(default_factory=list)
@@ -570,6 +571,11 @@ def create_task(payload: CreateTaskBody, board: Optional[str] = Query(None)):
     board = _resolve_board(board)
     conn = _conn(board=board)
     try:
+        requested_status = payload.status or ("triage" if payload.triage else None)
+        if requested_status is not None and requested_status not in kanban_db.VALID_STATUSES:
+            raise HTTPException(status_code=400, detail=f"unknown status: {requested_status}")
+        initial_status = "blocked" if requested_status == "blocked" else "running"
+        force_triage = payload.triage or requested_status == "triage"
         task_id = kanban_db.create_task(
             conn,
             title=payload.title,
@@ -581,11 +587,17 @@ def create_task(payload: CreateTaskBody, board: Optional[str] = Query(None)):
             tenant=payload.tenant,
             priority=payload.priority,
             parents=payload.parents,
-            triage=payload.triage,
+            triage=force_triage,
             idempotency_key=payload.idempotency_key,
             max_runtime_seconds=payload.max_runtime_seconds,
             skills=payload.skills,
+            initial_status=initial_status,
         )
+        if requested_status and requested_status not in ("triage", "blocked", "running"):
+            if requested_status == "done":
+                kanban_db.complete_task(conn, task_id)
+            else:
+                _set_status_direct(conn, task_id, requested_status)
         task = kanban_db.get_task(conn, task_id)
         body: dict[str, Any] = {"task": _task_dict(task) if task else None}
         # Surface a dispatcher-presence warning so the UI can show a
@@ -678,7 +690,7 @@ def update_task(task_id: str, payload: UpdateTaskBody, board: Optional[str] = Qu
                     status_code=400,
                     detail="Cannot set status to 'running' directly; use the dispatcher/claim path",
                 )
-            elif s in ("todo", "triage", "scheduled"):
+            elif s in ("todo", "triage", "scheduled", "review"):
                 ok = _set_status_direct(conn, task_id, s)
             else:
                 raise HTTPException(status_code=400, detail=f"unknown status: {s}")

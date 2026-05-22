@@ -2,7 +2,7 @@ import type { BackupResult, DestructiveMaintenanceResult, DoctorResult, DumpResu
 import type { SystemMetrics } from "@/lib/system-metrics";
 import type { UserBackground } from "@/lib/backgrounds";
 import type { ThemeOption } from "@/lib/themes";
-import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts, ChatAttachment, CronJob, CronJobCreatePayload } from "@/lib/types";
+import type { AccountRecord, AgentRecord, TailscaleStatus, BootstrapResponse, HermesProfile, Briefing, BriefingConfig, BriefingListItem, BriefingRunStatus, ConversationMessage, EntityRecord, MessagePage, MessageRecord, ReactiveSweep, ReactiveSweepStats, TrackedItem, TrackedItemDraft, UnreadCounts, ChatAttachment, CronJob, CronJobCreatePayload, KanbanBoard, KanbanTask, KanbanTaskCreatePayload, KanbanTaskUpdatePayload, KanbanStatus } from "@/lib/types";
 
 declare global {
   interface Window {
@@ -152,6 +152,37 @@ export const api = {
   resumeCronJob: (jobId: string, profile?: string) => fetchJSON<CronJob>(`/api/cron/jobs/${encodeURIComponent(jobId)}/resume${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "POST" }).then(() => undefined),
   triggerCronJob: (jobId: string, profile?: string) => fetchJSON<CronJob>(`/api/cron/jobs/${encodeURIComponent(jobId)}/trigger${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "POST" }).then(() => undefined),
   deleteCronJob: (jobId: string, profile?: string) => fetchJSON<{ ok: boolean }>(`/api/cron/jobs/${encodeURIComponent(jobId)}${profile ? `?profile=${encodeURIComponent(profile)}` : ""}`, { method: "DELETE" }).then(() => undefined),
+
+  getKanbanBoard: (tenant = "default", board?: string) => {
+    const params = new URLSearchParams();
+    if (tenant) params.set("tenant", tenant);
+    params.set("include_archived", "false");
+    if (board) params.set("board", board);
+    return fetchJSON<{ columns: Array<{ name: string; tasks: KanbanTask[] }>; tenants?: string[]; assignees?: string[]; latest_event_id?: number; now?: number }>(`/api/plugins/kanban/board?${params}`).then((payload) => ({
+      name: board ?? "default",
+      slug: board ?? "default",
+      columns: payload.columns.map((column) => ({
+        id: column.name as KanbanStatus,
+        name: column.name,
+        status: column.name as KanbanStatus,
+        taskIds: column.tasks.map((task) => task.id),
+        tasks: column.tasks,
+      })),
+      tenants: payload.tenants ?? [],
+      assignees: payload.assignees ?? [],
+      latest_event_id: payload.latest_event_id,
+      now: payload.now,
+    }) satisfies KanbanBoard);
+  },
+  listKanbanBoards: () => fetchJSON<{ boards: Array<Omit<KanbanBoard, "columns">>; current: string }>("/api/plugins/kanban/boards").then((payload) => payload.boards.map((board) => ({ ...board, columns: [] } as KanbanBoard))),
+  getKanbanTask: (taskId: string) => fetchJSON<{ task: KanbanTask }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}`).then((payload) => payload.task),
+  createKanbanTask: async (payload: KanbanTaskCreatePayload) => {
+    const { status = "triage", ...body } = payload;
+    const created = await fetchJSON<{ task: KanbanTask }>("/api/plugins/kanban/tasks", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...body, status, triage: status === "triage" }) });
+    return created.task;
+  },
+  updateKanbanTask: (taskId: string, patch: KanbanTaskUpdatePayload) => fetchJSON<{ task: KanbanTask }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).then((payload) => payload.task),
+  deleteKanbanTask: (taskId: string) => fetchJSON<{ deleted: boolean; task_id: string }>(`/api/plugins/kanban/tasks/${encodeURIComponent(taskId)}`, { method: "DELETE" }).then(() => undefined),
   listTrackedItems: (filters: Record<string, string | undefined> = {}) => {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value && value !== "all") params.set(key, value); });

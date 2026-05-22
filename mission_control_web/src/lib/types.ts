@@ -57,6 +57,103 @@ export interface CronJobCreatePayload {
   repeat?: number | null;
 }
 
+
+export type KanbanStatus = "triage" | "todo" | "scheduled" | "ready" | "running" | "blocked" | "review" | "done";
+
+export interface KanbanTaskAge {
+  created_age_seconds: number | null;
+  started_age_seconds: number | null;
+  time_to_complete_seconds: number | null;
+}
+
+export interface KanbanTask {
+  id: string;
+  title: string;
+  body: string | null;
+  assignee: string | null;
+  status: KanbanStatus;
+  priority: number;
+  created_by: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  workspace_kind: string;
+  workspace_path: string | null;
+  branch_name?: string | null;
+  claim_lock: string | null;
+  claim_expires: number | null;
+  tenant: string | null;
+  result?: string | null;
+  idempotency_key?: string | null;
+  consecutive_failures?: number;
+  worker_pid?: number | null;
+  last_failure_error?: string | null;
+  max_runtime_seconds?: number | null;
+  last_heartbeat_at?: number | null;
+  current_run_id?: number | null;
+  workflow_template_id?: string | null;
+  current_step_key?: string | null;
+  skills?: string[] | null;
+  model_override?: string | null;
+  max_retries?: number | null;
+  session_id?: string | null;
+  age?: KanbanTaskAge;
+  latest_summary?: string | null;
+  link_counts?: { parents: number; children: number };
+  comment_count?: number;
+  progress?: { done: number; total: number } | null;
+  diagnostics?: Array<Record<string, unknown>>;
+  warnings?: Record<string, unknown>;
+}
+
+export interface KanbanColumn {
+  id: KanbanStatus;
+  name: string;
+  status: KanbanStatus;
+  taskIds: string[];
+  tasks: KanbanTask[];
+}
+
+export interface KanbanBoard {
+  slug?: string;
+  name?: string;
+  display_name?: string;
+  description?: string;
+  is_current?: boolean;
+  counts?: Record<string, number>;
+  total?: number;
+  columns: KanbanColumn[];
+  tenants?: string[];
+  assignees?: string[];
+  latest_event_id?: number;
+  now?: number;
+}
+
+export interface KanbanTaskCreatePayload {
+  title: string;
+  body?: string | null;
+  assignee?: string | null;
+  tenant?: string | null;
+  priority?: number;
+  status?: KanbanStatus;
+  workspace_kind?: string;
+  workspace_path?: string | null;
+  parents?: string[];
+  triage?: boolean;
+}
+
+export interface KanbanTaskUpdatePayload {
+  title?: string;
+  body?: string | null;
+  assignee?: string | null;
+  priority?: number;
+  status?: KanbanStatus;
+  result?: string | null;
+  block_reason?: string | null;
+  summary?: string | null;
+  metadata?: Record<string, unknown> | null;
+}
+
 export interface UsageSummary {
   conversation_count?: number;
   input_tokens: number;
