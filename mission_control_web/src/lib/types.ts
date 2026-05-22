@@ -223,6 +223,13 @@ export interface MemoryRecord {
 }
 
 export type EntityType = "trust" | "llc" | "corp" | "personal" | "other";
+export const ENTITY_TYPE_OPTIONS: Array<{ value: EntityType; label: string }> = [
+  { value: "trust", label: "Trust" },
+  { value: "llc", label: "LLC" },
+  { value: "corp", label: "Corp" },
+  { value: "personal", label: "Personal" },
+  { value: "other", label: "Other" },
+];
 export type MessagingPolicy = "open" | "restricted" | "isolated";
 
 export interface EntityRecord {

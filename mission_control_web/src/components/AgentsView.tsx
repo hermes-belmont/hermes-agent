@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Edit3, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { ENTITY_TYPE_OPTIONS } from "@/lib/types";
 import type { AgentRecord, BootstrapResponse, EntityRecord, MessagingPolicy } from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -71,6 +72,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 }
 
 const inputClass = "w-full rounded-xl border border-foreground/10 bg-background/65 px-3 py-2 text-sm text-foreground outline-none focus:border-[var(--warm-glow)]";
+const entityTypeLabel = (type: EntityRecord["type"]) => ENTITY_TYPE_OPTIONS.find((option) => option.value === type)?.label ?? type;
 
 export function AgentsView({ bootstrap, onRefresh, initialSelection, initialViewMode, initialTrash }: { bootstrap: BootstrapResponse; onRefresh: () => Promise<BootstrapResponse>; initialSelection?: Selection | null; initialViewMode?: ViewMode; initialTrash?: TrashAgent[] }) {
   const [tree, setTree] = useState<EntityRecord[]>(bootstrap.entity_tree ?? []);
@@ -159,7 +161,7 @@ export function AgentsView({ bootstrap, onRefresh, initialSelection, initialView
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => setSelection({ kind: "entity", id: entity.id })}>
             <span className="font-expanded text-sm uppercase tracking-[0.08em]">{entity.name}</span>
           </button>
-          <Pill>{entity.type}</Pill>
+          <Pill>{entityTypeLabel(entity.type)}</Pill>
           {entity.messaging_policy !== "open" && <Pill tone={entity.messaging_policy === "isolated" ? "warm" : "muted"}>{entity.messaging_policy}</Pill>}
           <span className="text-xs text-muted-foreground">{entityAgents.length}</span>
           <span className="hidden gap-1 group-hover:flex">
@@ -293,7 +295,7 @@ function EntityInspector({ selectedEntity, entities, saveEntity }: { selectedEnt
       <CardHeader><CardTitle>Entity inspector</CardTitle><CardDescription>{selectedEntity.id}</CardDescription></CardHeader>
       <CardContent className="space-y-3">
         <Field label="Name"><input className={inputClass} value={draft.name ?? ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field>
-        <Field label="Type"><select className={inputClass} value={draft.type ?? "other"} onChange={(event) => setDraft({ ...draft, type: event.target.value as EntityRecord["type"] })}>{["trust", "llc", "corp", "personal", "other"].map((type) => <option key={type}>{type}</option>)}</select></Field>
+        <Field label="Type"><select className={inputClass} value={draft.type ?? "other"} onChange={(event) => setDraft({ ...draft, type: event.target.value as EntityRecord["type"] })}>{ENTITY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
         <Field label="Description"><textarea className={inputClass} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field>
         <Field label="Parent"><select className={inputClass} value={draft.parent_id ?? ""} onChange={(event) => setDraft({ ...draft, parent_id: event.target.value || null })}><option value="">None</option>{entities.filter((entity) => entity.id !== selectedEntity.id).map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></Field>
         <Field label="Messaging policy"><select className={inputClass} value={draft.messaging_policy ?? "open"} onChange={(event) => setDraft({ ...draft, messaging_policy: event.target.value as MessagingPolicy })}><option value="open">Open: any agent may send to/from this entity</option><option value="restricted">Restricted: only vertical chain (parent/self/child)</option><option value="isolated">Isolated: only same-entity sends</option></select></Field>
@@ -313,7 +315,7 @@ function AgentModal({ entities, models, onClose, onSave }: { entities: EntityRec
 
 function EntityModal({ entities, onClose, onSave }: { entities: EntityRecord[]; onClose: () => void; onSave: (draft: Partial<EntityRecord>) => Promise<void> }) {
   const [draft, setDraft] = useState<Partial<EntityRecord>>({ name: "", type: "llc", parent_id: null, description: "", messaging_policy: "open", metadata: emptyMetadata });
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"><Card className="w-full max-w-xl"><CardHeader><CardTitle>Add Entity</CardTitle></CardHeader><CardContent className="space-y-3"><Field label="Name"><input className={inputClass} value={draft.name ?? ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="Type"><select className={inputClass} value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as EntityRecord["type"] })}>{["trust", "llc", "corp", "personal", "other"].map((type) => <option key={type}>{type}</option>)}</select></Field><Field label="Parent"><select className={inputClass} value={draft.parent_id ?? ""} onChange={(event) => setDraft({ ...draft, parent_id: event.target.value || null })}><option value="">None</option>{entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></Field><Field label="Description"><textarea className={inputClass} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field><Field label="Messaging policy"><select className={inputClass} value={draft.messaging_policy} onChange={(event) => setDraft({ ...draft, messaging_policy: event.target.value as MessagingPolicy })}><option value="open">Open</option><option value="restricted">Restricted</option><option value="isolated">Isolated</option></select></Field><div className="flex gap-2"><Button onClick={() => void onSave(draft)}>Save</Button><Button variant="outline" onClick={onClose}>Cancel</Button></div></CardContent></Card></div>;
+  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4"><Card className="w-full max-w-xl"><CardHeader><CardTitle>Add Entity</CardTitle></CardHeader><CardContent className="space-y-3"><Field label="Name"><input className={inputClass} value={draft.name ?? ""} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></Field><Field label="Type"><select className={inputClass} value={draft.type} onChange={(event) => setDraft({ ...draft, type: event.target.value as EntityRecord["type"] })}>{ENTITY_TYPE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field><Field label="Parent"><select className={inputClass} value={draft.parent_id ?? ""} onChange={(event) => setDraft({ ...draft, parent_id: event.target.value || null })}><option value="">None</option>{entities.map((entity) => <option key={entity.id} value={entity.id}>{entity.name}</option>)}</select></Field><Field label="Description"><textarea className={inputClass} value={draft.description ?? ""} onChange={(event) => setDraft({ ...draft, description: event.target.value })} /></Field><Field label="Messaging policy"><select className={inputClass} value={draft.messaging_policy} onChange={(event) => setDraft({ ...draft, messaging_policy: event.target.value as MessagingPolicy })}><option value="open">Open</option><option value="restricted">Restricted</option><option value="isolated">Isolated</option></select></Field><div className="flex gap-2"><Button onClick={() => void onSave(draft)}>Save</Button><Button variant="outline" onClick={onClose}>Cancel</Button></div></CardContent></Card></div>;
 }
 
 function MoveModal({ entities, onClose, onMove }: { entities: EntityRecord[]; onClose: () => void; onMove: (id: string) => Promise<void> }) {
