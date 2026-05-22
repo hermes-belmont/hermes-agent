@@ -193,9 +193,8 @@ def normalize_agent_entity_fields(state: dict[str, Any]) -> bool:
         if "description" not in agent:
             agent["description"] = agent.get("advanced", {}).get("notes") or ""
             changed = True
-        briefing = str(agent.get("id")) in BRIEFING_AGENT_IDS
-        if agent.get("is_briefing_agent") is not briefing:
-            agent["is_briefing_agent"] = briefing
+        if "is_briefing_agent" not in agent:
+            agent["is_briefing_agent"] = str(agent.get("id")) in BRIEFING_AGENT_IDS
             changed = True
         for key in ("deleted_at", "purge_at", "deleted_by"):
             if key not in agent:

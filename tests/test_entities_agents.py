@@ -74,6 +74,25 @@ def test_migration_creates_default_tree_and_is_idempotent(tmp_path, monkeypatch)
     assert next(agent for agent in state["agents"] if agent["id"] == "agent_lab")["operating_entity"] == "Unassigned"
 
 
+def test_migration_preserves_explicit_briefing_agent_flags(tmp_path, monkeypatch):
+    state_path, _, _ = _patch_paths(tmp_path, monkeypatch)
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(json.dumps({
+        "agents": [
+            {"id": "agent_custom", "name": "Custom", "role": "Custom", "operating_entity": "Umbrella Holdings Group, LLC", "is_briefing_agent": True},
+            {"id": "agent_ops", "name": "Ops", "role": "Ops", "operating_entity": "Umbrella Holdings Group, LLC", "is_briefing_agent": False},
+        ],
+        "conversations": [],
+        "audit_log": [],
+    }), encoding="utf-8")
+
+    state, _ = entities_service.migrate_state_if_needed(entities_service.load_state())
+    briefing = {agent["id"]: agent["is_briefing_agent"] for agent in state["agents"]}
+
+    assert briefing["agent_custom"] is True
+    assert briefing["agent_ops"] is False
+
+
 def test_entity_and_agent_crud_duplicate_move_delete_restore_and_purge(tmp_path, monkeypatch):
     state_path, _, runtime = _patch_paths(tmp_path, monkeypatch)
     _seed_state(state_path)
