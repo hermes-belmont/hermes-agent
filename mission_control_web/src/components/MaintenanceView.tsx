@@ -112,8 +112,8 @@ function ProgressIcon({ status }: { status: UpdateAllJobStatus["steps"][number][
   return <span className="h-3 w-3 rounded-full bg-foreground/20" />;
 }
 
-function UpdateAllProgress({ job, error }: { job: UpdateAllJobStatus | null; error?: string }) {
-  if (!job && !error) return null;
+function UpdateAllProgress({ job, error, awaitingRestart = false }: { job: UpdateAllJobStatus | null; error?: string; awaitingRestart?: boolean }) {
+  if (!job && !error && !awaitingRestart) return null;
   const failedStep = job?.steps.find((step) => step.status === "failed");
   const steps = job?.steps ?? (["rebuild_mc", "reinstall_ha", "restart_ha", "restart_mc"] as const).map((name) => ({ name, status: "pending" as const, started_at: null, completed_at: null, log_excerpt: "" }));
   return <div className="mt-3 rounded-2xl border border-foreground/10 bg-background/50 p-3 text-xs text-foreground/80">
@@ -122,7 +122,8 @@ function UpdateAllProgress({ job, error }: { job: UpdateAllJobStatus | null; err
       {steps.map((step) => <div key={step.name} className="flex items-center justify-between gap-3 rounded-xl bg-foreground/5 px-3 py-2"><span className="flex items-center gap-2"><ProgressIcon status={step.status} />{updateAllStepLabels[step.name]}</span><span className={cn("uppercase tracking-[0.14em]", step.status === "failed" ? "text-red-400" : step.status === "ok" ? "text-emerald-400" : step.status === "running" || step.status === "scheduled" ? "text-[#ffbd38]" : "text-foreground/45")}>{progressLabel(step.status)}</span></div>)}
     </div>
     {failedStep?.log_excerpt ? <pre className="mt-3 max-h-40 overflow-auto rounded-xl border border-red-400/20 bg-red-950/20 p-3 text-[11px] text-red-100/85">{failedStep.log_excerpt}</pre> : null}
-    {error ? <div className="mt-3 rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-red-300">{error}</div> : null}
+    {awaitingRestart ? <div className="mt-3 rounded-xl border border-[#ffbd38]/25 bg-[#ffbd38]/10 px-3 py-2 text-[#ffbd38]">Restarting Mission Control. This page will reload shortly.</div> : null}
+    {!awaitingRestart && error ? <div className="mt-3 rounded-xl border border-red-400/25 bg-red-400/10 px-3 py-2 text-red-300">{error}</div> : null}
   </div>;
 }
 
@@ -201,6 +202,7 @@ export function MaintenanceView() {
   const [updateAllJob, setUpdateAllJob] = useState<UpdateAllJobStatus | null>(null);
   const [updateAllError, setUpdateAllError] = useState<string | undefined>();
   const [updateAllStarting, setUpdateAllStarting] = useState(false);
+  const [awaitingRestart, setAwaitingRestart] = useState(false);
   const [hermesStatus, setHermesStatus] = useState<HermesStatus | null>(null);
   const [hermesChecking, setHermesChecking] = useState(false);
   const [hermesLastChecked, setHermesLastChecked] = useState<string | null>(null);
@@ -244,9 +246,9 @@ export function MaintenanceView() {
   useEffect(() => { void checkHciStatus(); }, [checkHciStatus]);
 
   useEffect(() => {
+    if (!updateAllJobId || awaitingRestart) return undefined;
     let cancelled = false;
     let timeoutId: number | undefined;
-    let restartMisses = 0;
     async function poll() {
       if (!updateAllJobId) return;
       try {
@@ -255,11 +257,19 @@ export function MaintenanceView() {
         setUpdateAllJob(payload);
         setHciStatus(payload.current_hci_status);
         if (payload.phase === "failed") {
+          setAwaitingRestart(false);
           setUpdateAllError("Update All failed. Review the failed step log.");
           setDestructiveLoading(null);
           return;
         }
+        if (payload.phase === "mc_restart_scheduled") {
+          setUpdateAllError(undefined);
+          setDestructiveLoading(null);
+          setAwaitingRestart(true);
+          return;
+        }
         if (payload.phase === "completed") {
+          setAwaitingRestart(false);
           setUpdateAllError(undefined);
           setDestructiveLoading(null);
           await checkHciStatus();
@@ -269,9 +279,10 @@ export function MaintenanceView() {
       } catch (error) {
         if (cancelled) return;
         const phase = updateAllJob?.phase;
-        if (phase === "mc_restart_scheduled" && restartMisses < 15) {
-          restartMisses += 1;
-          timeoutId = window.setTimeout(poll, 1000);
+        if (phase === "mc_restart_scheduled") {
+          setUpdateAllError(undefined);
+          setDestructiveLoading(null);
+          setAwaitingRestart(true);
           return;
         }
         setUpdateAllError(error instanceof Error ? error.message : "Could not read update status");
@@ -280,13 +291,24 @@ export function MaintenanceView() {
     }
     timeoutId = window.setTimeout(poll, 250);
     return () => { cancelled = true; if (timeoutId) window.clearTimeout(timeoutId); };
-  }, [checkHciStatus, updateAllJob?.phase, updateAllJobId]);
+  }, [awaitingRestart, checkHciStatus, updateAllJob?.phase, updateAllJobId]);
+
+  useEffect(() => {
+    if (!awaitingRestart) return undefined;
+    const timeoutId = window.setTimeout(() => window.location.reload(), 5000);
+    return () => window.clearTimeout(timeoutId);
+  }, [awaitingRestart]);
 
   useEffect(() => {
     void api.getUpdateAllMaintenanceStatus().then((payload) => {
       if (payload.phase !== "completed" && payload.phase !== "failed") {
         setUpdateAllJobId(payload.job_id);
         setUpdateAllJob(payload);
+        if (payload.phase === "mc_restart_scheduled") {
+          setUpdateAllError(undefined);
+          setDestructiveLoading(null);
+          setAwaitingRestart(true);
+        }
       }
     }).catch(() => undefined);
   }, []);
@@ -299,7 +321,7 @@ export function MaintenanceView() {
   }, [loading]);
 
   const destructiveDisabled = Boolean(destructiveLoading);
-  const updateAllActive = updateAllStarting || Boolean(updateAllJob && updateAllJob.phase !== "completed" && updateAllJob.phase !== "failed");
+  const updateAllActive = updateAllStarting || awaitingRestart || Boolean(updateAllJob && updateAllJob.phase !== "completed" && updateAllJob.phase !== "failed");
   const hciAllInSync = hciStatus?.mission_control.status === "in_sync" && hciStatus?.hermes_agent.status === "in_sync";
   const hciCardButtonsDisabled = destructiveDisabled || updateAllActive;
   const gatewayBusy = gatewayRestartState === "restarting";
@@ -324,6 +346,7 @@ export function MaintenanceView() {
   const runUpdateAll = async () => {
     setUpdateAllStarting(true);
     setUpdateAllError(undefined);
+    setAwaitingRestart(false);
     setUpdateAllJob(null);
     try {
       const payload = await api.startUpdateAllMaintenance();
@@ -382,7 +405,7 @@ export function MaintenanceView() {
     <div className="mb-6"><p className="text-[10px] uppercase tracking-[0.28em] text-foreground/70">Maintenance</p><h1 className="mt-2 text-3xl font-light tracking-[-0.04em] text-foreground sm:text-4xl">Maintenance</h1><p className="mt-2 text-sm text-foreground/70">System tools and diagnostics</p></div>
     <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
       <Card title="Health Check" icon={HeartPulse} body="Test all HCI API endpoints" result={<><ErrorPanel message={errors.health} />{results.health ? <HealthResult result={results.health} /> : null}<OperationResult result={destructiveResults.restart} /></>}><ActionButton loading={loading.health} onClick={() => void runAction("health", api.runMaintenanceHealthCheck)}>Check APIs</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "restart"} onClick={() => setModal(modalFor("restart"))}>Restart HCI</ActionButton></Card>
-      <Card title="HCI Update" icon={GitBranch} body={hciBody} result={<><ErrorPanel message={errors.updates} />{hciCheckFailed ? <div className="mb-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}<HciStatusRows status={hciStatus} />{hciLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hciLastChecked}</div> : null}<UpdateAllProgress job={updateAllJob} error={updateAllError} /><OperationResult result={destructiveResults.updateAll} /><OperationResult result={destructiveResults.rollback} /></>}><ActionButton disabled={hciCardButtonsDisabled} loading={hciChecking} onClick={() => void checkHciStatus()}>Check Updates</ActionButton><ActionButton variant={hciAllInSync ? "default" : "warning"} disabled={hciAllInSync || hciCardButtonsDisabled} loading={destructiveLoading === "updateAll" || updateAllStarting} onClick={() => setModal(modalFor("updateAll"))}>{hciAllInSync ? "ALL UP TO DATE" : "Update All"}</ActionButton><ActionButton disabled={hciCardButtonsDisabled} loading={destructiveLoading === "rollback"} onClick={() => setModal(modalFor("rollback"))}>Rollback</ActionButton></Card>
+      <Card title="HCI Update" icon={GitBranch} body={hciBody} result={<><ErrorPanel message={errors.updates} />{hciCheckFailed ? <div className="mb-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}<HciStatusRows status={hciStatus} />{hciLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hciLastChecked}</div> : null}<UpdateAllProgress job={updateAllJob} error={updateAllError} awaitingRestart={awaitingRestart} /><OperationResult result={destructiveResults.updateAll} /><OperationResult result={destructiveResults.rollback} /></>}><ActionButton disabled={hciCardButtonsDisabled} loading={hciChecking} onClick={() => void checkHciStatus()}>Check Updates</ActionButton><ActionButton variant={hciAllInSync ? "default" : "warning"} disabled={hciAllInSync || hciCardButtonsDisabled} loading={destructiveLoading === "updateAll" || updateAllStarting} onClick={() => setModal(modalFor("updateAll"))}>{hciAllInSync ? "ALL UP TO DATE" : "Update All"}</ActionButton><ActionButton disabled={hciCardButtonsDisabled} loading={destructiveLoading === "rollback"} onClick={() => setModal(modalFor("rollback"))}>Rollback</ActionButton></Card>
       <Card title="Doctor" icon={Stethoscope} body="Run diagnostics" result={<><ErrorPanel message={errors.doctor} />{results.doctor ? <DoctorResultPanel result={results.doctor} /> : null}<AutoFixResult result={destructiveResults.autoFix} /></>}><ActionButton loading={loading.doctor} onClick={() => void runAction("doctor", api.runMaintenanceDoctor)}>Run Diagnose</ActionButton><ActionButton disabled={destructiveDisabled} loading={destructiveLoading === "autoFix"} onClick={() => setModal(modalFor("autoFix"))}>Auto-Fix</ActionButton></Card>
       <Card title="Dump" icon={FileDown} body="Setup summary for debugging" result={<><ErrorPanel message={errors.dump} />{results.dump ? <FileResult label="Dump created" filename={results.dump.filename} size={results.dump.size_bytes} href={results.dump.download_url} /> : null}</>}><ActionButton loading={loading.dump} onClick={() => void runAction("dump", api.generateMaintenanceDump)}>Generate Dump</ActionButton></Card>
       <Card title="Hermes Update" icon={RefreshCw} body={hermesBody} result={<><OperationResult result={destructiveResults.updateHermes} />{hermesLastChecked ? <div className="mt-3 text-[11px] text-foreground/45">Last checked {hermesLastChecked}</div> : null}{hermesCheckFailed ? <div className="mt-2 text-[11px] text-foreground/45">Check failed. Retry.</div> : null}{gatewayStatusLine ? <div className={cn("mt-2 text-[11px]", gatewayRestartState === "success" ? "text-emerald-400" : gatewayRestartState === "timeout" || gatewayRestartState === "error" ? "text-[#ffbd38]" : "text-foreground/55")}>{gatewayStatusLine}</div> : null}</>}><ActionButton disabled={hermesButtonsDisabled} loading={hermesChecking} onClick={() => void checkHermesStatus()}>Check Update</ActionButton><ActionButton disabled={hermesButtonsDisabled} loading={destructiveLoading === "updateHermes"} onClick={() => setModal(modalFor("updateHermes"))}>Update Hermes</ActionButton><ActionButton variant="warning" disabled={hermesButtonsDisabled} loading={destructiveLoading === "restartGateway"} onClick={() => setModal(modalFor("restartGateway"))}>Restart Gateway</ActionButton></Card>
