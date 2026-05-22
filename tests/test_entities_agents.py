@@ -16,6 +16,9 @@ def _patch_paths(tmp_path, monkeypatch):
     state_path = home / "state.json"
     backup_path = home / "state.json.pre_slice_8a_migration_backup"
     monkeypatch.setattr(server, "MISSION_CONTROL_STATE_PATH", state_path)
+    monkeypatch.setattr(server, "MISSION_CONTROL_HOME", home)
+    monkeypatch.setattr(server, "get_mission_control_home", lambda: home)
+    monkeypatch.setattr(server, "get_mission_control_state_path", lambda: state_path)
     monkeypatch.setattr(entities_service, "MISSION_CONTROL_HOME", home)
     monkeypatch.setattr(entities_service, "STATE_PATH", state_path)
     monkeypatch.setattr(entities_service, "MIGRATION_BACKUP_PATH", backup_path)
@@ -91,6 +94,25 @@ def test_migration_preserves_explicit_briefing_agent_flags(tmp_path, monkeypatch
 
     assert briefing["agent_custom"] is True
     assert briefing["agent_ops"] is False
+
+
+def test_entity_update_persists_explicit_parent_id_across_reload(tmp_path, monkeypatch):
+    state_path, _, _ = _patch_paths(tmp_path, monkeypatch)
+    _seed_state(state_path)
+    client, headers = _client()
+    tree = client.get("/api/entities/tree", headers=headers)
+    assert tree.status_code == 200
+    entities = client.get("/api/entities", headers=headers).json()
+    trust = next(entity for entity in entities if entity["name"] == "Umbrella Corporation Trust")
+    media = next(entity for entity in entities if entity["name"] == "Umbrella Media, LLC")
+
+    updated = client.put(f"/api/entities/{media['id']}", json={"parent_id": trust["id"]}, headers=headers)
+
+    assert updated.status_code == 200
+    assert updated.json()["parent_id"] == trust["id"]
+    reloaded_state = server._load_state()
+    reloaded = next(entity for entity in reloaded_state["entities"] if entity["id"] == media["id"])
+    assert reloaded["parent_id"] == trust["id"]
 
 
 def test_entity_and_agent_crud_duplicate_move_delete_restore_and_purge(tmp_path, monkeypatch):

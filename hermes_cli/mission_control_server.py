@@ -3694,7 +3694,13 @@ async def update_entity_endpoint(entity_id: str, payload: dict[str, Any]):
     if not found:
         raise HTTPException(status_code=404, detail="Entity not found")
     idx, existing = found
-    allowed = {k: payload[k] for k in ("name", "type", "description", "metadata", "messaging_policy") if k in payload}
+    if "parent_id" in payload:
+        parent_id = payload.get("parent_id") or None
+        if parent_id == entity_id or (parent_id and entities_service.is_descendant(state, str(parent_id), entity_id)):
+            raise HTTPException(status_code=400, detail="Entity update would create a cycle")
+        if parent_id and not _entity_lookup(state, str(parent_id)):
+            raise HTTPException(status_code=400, detail="parent_id not found")
+    allowed = {k: payload[k] for k in ("name", "type", "parent_id", "description", "metadata", "messaging_policy") if k in payload}
     updated = entities_service.normalize_entity(allowed, existing)
     state["entities"][idx] = updated
     for agent in state.get("agents", []):
