@@ -256,6 +256,23 @@ KANBAN_GUIDANCE = (
     "cross-agent handoffs that outlive one API loop."
 )
 
+FILE_MUTATION_PROTOCOL = """## File Mutation Protocol
+
+These rules apply to all file modifications during a session.
+
+1. For new files, prefer create_file or write_file over patch.
+2. After every patch, verify the change with read_file or view
+   before treating it as complete. Do not rely on the patch
+   tool's success response alone.
+3. If the file-mutation verifier emits a warning at any point in
+   a turn, treat it as a hard stop. Abort the current task,
+   report which file(s) may not have been mutated, and do not
+   narrate success or continue validation as if the change
+   exists.
+4. Before staging files for commit, confirm actual disk diffs
+   with git diff or read_file. Stage explicit paths only, never
+   a bulk add."""
+
 TOOL_USE_ENFORCEMENT_GUIDANCE = (
     "# Tool-use enforcement\n"
     "You MUST use your tools to take action — do not describe what you would do "
