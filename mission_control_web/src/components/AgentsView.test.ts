@@ -2,6 +2,7 @@ import { createElement, type ComponentProps } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AgentsView } from "@/components/AgentsView";
+import { entitySaveErrorMessage } from "@/lib/entity-errors";
 import type { AgentRecord, BootstrapResponse, EntityRecord } from "@/lib/types";
 
 const storage = new Map<string, string>();
@@ -107,6 +108,10 @@ describe("AgentsView", () => {
     expect(html).toContain("Open: any agent may send to/from this entity");
     expect(html).toContain("Restricted: only vertical chain");
     expect(html).toContain("Isolated: only same-entity sends");
+  });
+
+  it("extracts entity update validation details from API errors", () => {
+    expect(entitySaveErrorMessage(new Error('400: {"detail":"Entity update would create a cycle"}'))).toBe("Entity update would create a cycle");
   });
 
   it("switching to trash view changes the displayed list", () => {

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Edit3, Plus, Trash2 } from "lucide-react";
 import { api } from "@/lib/api";
+import { entitySaveErrorMessage } from "@/lib/entity-errors";
 import { ENTITY_TYPE_OPTIONS } from "@/lib/types";
 import type { AgentRecord, BootstrapResponse, EntityRecord, MessagingPolicy } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -287,9 +288,19 @@ function AgentInspector({ selectedAgent, entities, models, reachable, reachableE
 
 function EntityInspector({ selectedEntity, entities, saveEntity }: { selectedEntity: EntityRecord; entities: EntityRecord[]; saveEntity: (patch: Partial<EntityRecord>) => Promise<void> }) {
   const [draft, setDraft] = useState<Partial<EntityRecord>>(selectedEntity);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const metadata = draft.metadata ?? emptyMetadata;
   const pseudoAgents = entities.map((entity, index) => ({ id: `pseudo_${index}`, entity_id: entity.id }) as AgentRecord);
   const blocked = pseudoAgents.filter((from) => pseudoAgents.some((to) => from.id !== to.id && !policyAllows(entities, pseudoAgents, from.id, to.id))).length;
+  const handleSave = async () => {
+    setSaveError(null);
+    try {
+      await saveEntity(draft);
+    } catch (error) {
+      setSaveError(entitySaveErrorMessage(error));
+      setDraft(selectedEntity);
+    }
+  };
   return (
     <Card>
       <CardHeader><CardTitle>Entity inspector</CardTitle><CardDescription>{selectedEntity.id}</CardDescription></CardHeader>
@@ -301,7 +312,8 @@ function EntityInspector({ selectedEntity, entities, saveEntity }: { selectedEnt
         <Field label="Messaging policy"><select className={inputClass} value={draft.messaging_policy ?? "open"} onChange={(event) => setDraft({ ...draft, messaging_policy: event.target.value as MessagingPolicy })}><option value="open">Open: any agent may send to/from this entity</option><option value="restricted">Restricted: only vertical chain (parent/self/child)</option><option value="isolated">Isolated: only same-entity sends</option></select></Field>
         {(draft.messaging_policy === "restricted" || draft.messaging_policy === "isolated") && <div className="rounded-xl border border-[var(--warm-glow)]/30 p-2 text-xs text-[var(--warm-glow)]">{draft.messaging_policy} policy blocks {blocked} current send paths in your registry. Past messages are preserved.</div>}
         <div className="grid grid-cols-3 gap-2"><Field label="EIN"><input className={inputClass} value={metadata.ein ?? ""} onChange={(event) => setDraft({ ...draft, metadata: { ...metadata, ein: event.target.value || null } })} /></Field><Field label="State"><input className={inputClass} value={metadata.state ?? ""} onChange={(event) => setDraft({ ...draft, metadata: { ...metadata, state: event.target.value || null } })} /></Field><Field label="Formation"><input className={inputClass} value={metadata.formation_date ?? ""} onChange={(event) => setDraft({ ...draft, metadata: { ...metadata, formation_date: event.target.value || null } })} /></Field></div>
-        <div className="flex gap-2"><Button onClick={() => void saveEntity(draft)}>Save</Button><Button variant="outline" onClick={() => setDraft(selectedEntity)}>Cancel</Button></div>
+        {saveError && <div role="alert" className="rounded-xl border border-red-400/35 bg-red-950/25 px-3 py-2 text-sm text-red-200">{saveError}</div>}
+        <div className="flex gap-2"><Button onClick={() => void handleSave()}>Save</Button><Button variant="outline" onClick={() => { setSaveError(null); setDraft(selectedEntity); }}>Cancel</Button></div>
         <div className="text-xs text-muted-foreground">Agent count {(selectedEntity.agents ?? []).length} · Child entities {(selectedEntity.children ?? []).length}</div>
       </CardContent>
     </Card>
