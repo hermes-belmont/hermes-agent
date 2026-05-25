@@ -2,6 +2,7 @@ import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import fs from "node:fs";
 
 const HERMES_BASE_URL = process.env.HERMES_BASE_URL ?? "http://localhost:9119";
 
@@ -37,8 +38,21 @@ function sessionTokenPlugin(): Plugin {
   };
 }
 
+function cleanBuildOutputPlugin(): Plugin {
+  return {
+    name: "clean-build-output-preserve-preview",
+    buildStart() {
+      const outDir = path.resolve(__dirname, "../hermes_cli/mission_control_dist");
+      const indexHtml = path.join(outDir, "index.html");
+      const assetsDir = path.join(outDir, "assets");
+      try { fs.rmSync(indexHtml, { force: true }); } catch { /* ignore missing */ }
+      try { fs.rmSync(assetsDir, { recursive: true, force: true }); } catch { /* ignore missing */ }
+    },
+  };
+}
+
 export default defineConfig({
-  plugins: [react(), tailwindcss(), sessionTokenPlugin()],
+  plugins: [react(), tailwindcss(), sessionTokenPlugin(), cleanBuildOutputPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
@@ -46,7 +60,7 @@ export default defineConfig({
   },
   build: {
     outDir: "../hermes_cli/mission_control_dist",
-    emptyOutDir: true,
+    emptyOutDir: false,
   },
   server: {
     host: "127.0.0.1",
