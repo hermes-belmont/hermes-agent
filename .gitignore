@@ -74,4 +74,6 @@ website/static/api/skills-index.json
 models-dev-upstream/
 hermes_cli/tui_dist/*
 hermes_cli/scripts/
-docs/superpowers/*hermes_cli/mission_control_dist/build-manifest.json
+docs/superpowers/*
+hermes_cli/mission_control_dist/build-manifest.json
+
