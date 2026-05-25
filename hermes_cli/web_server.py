@@ -2582,6 +2582,8 @@ async def get_logs(
 from hermes_cli.cron_api_routes import (
     router as cron_api_router,
     _call_cron_for_profile,
+    CronJobCreate,
+    CronJobUpdate,
     create_cron_job,
     delete_cron_job,
     get_cron_job,
