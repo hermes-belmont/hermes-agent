@@ -46,6 +46,7 @@ import { getDefaultModel, getRecentsPadded, promoteOnSend, RECENTS_STORAGE_KEY, 
 import { legacyHashRedirect, navigateToSettingsSection, resolveHashView } from "@/lib/hash-routing";
 import { DEFAULT_ACCOUNT } from "@/lib/account-defaults";
 import { ConfirmActionModal } from "@/components/ConfirmActionModal";
+import { ScrollToBottomButton } from "@/components/ScrollToBottomButton";
 
 const ACTIVE_VIEW_STORAGE_KEY = "mission-control-active-view";
 const RAIL_COLLAPSED_STORAGE_KEY = "mission-control-rail-collapsed";
@@ -891,6 +892,7 @@ function HermesChatView({
   onStartVoice: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messagesScrollRef = useRef<HTMLDivElement | null>(null);
   const hasThread = messages.length > 0;
   const displayProfile = activeAgent?.name ?? "default";
   const profileModel = activeModel;
@@ -938,11 +940,16 @@ function HermesChatView({
         )}
 
         {hasThread && (
-          <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-1 pb-8 pt-8">
+          <div ref={messagesScrollRef} className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-4 overflow-y-auto px-1 pb-8 pt-8">
             {messages.map((message) => <ChatMessageRow key={message.id} message={message} loadingPhrases={loadingPhrases} />)}
           </div>
         )}
       </div>
+
+      <ScrollToBottomButton
+        scrollContainerRef={messagesScrollRef}
+        className="bottom-[170px] right-7 z-30"
+      />
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 px-5 pb-5 sm:px-7">
         <div
